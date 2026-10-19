@@ -1,6 +1,6 @@
-# Market Duel — a tool for EVE Online
+# Market Duel — a pricing tool for EVE Online
 
-Version 1.0
+Version 1.01
 
 Two markets compete for your business. The ★ marks the winner.
 
@@ -9,15 +9,22 @@ Two markets compete for your business. The ★ marks the winner.
 ## What it does
 Paste a list of items from an EVE hangar or a ship fit, choose **Sell** or **Buy**, and pick two markets
 (trade hubs, any region, system or station). Market Duel shows what each market pays or charges right now
-and marks the better price for every item and in total.
+and marks the winning price for every item and in total.
+
+It also splits your list by winner: the items that win at each market, their ISK total, how much more you
+get (or save) by going there, and a **Copy list** button. A copied list can be pasted into EVE's Multibuy
+window or back into Market Duel. Items not listed at a market (no buyer, or not for sale) are
+gathered into three lists, not listed at the first market, not listed at the second, and not listed at
+either, each with its own **Copy list** button, so you can look for them elsewhere.
 
 ## Privacy
-No accounts, no cookies, no tracking. The page is a single static file. Your browser fetches prices
-directly from EVE Online's public market data (ESI); nothing you paste is sent anywhere else.
+No accounts, no cookies, no tracking. The page is a single static file. Prices come directly from
+EVE Online's market data via ESI, EVE's official API. No other website is queried, and nothing you paste
+is sent anywhere else.
 
 ## Support
-If you find Market Duel useful, a small donation of ISK in game to **Axiiom Jones** (note the double *ii*)
-would be appreciated! Thank you, and fly safe! o7
+If Market Duel helped earn or save you some ISK, consider sending an in-game tip to **Ax*ii*om Jones**.
+ISK only, please. Fly safe! o7
 
 ## Credits
 - Market data: EVE Online ESI (public endpoints).
