@@ -1,6 +1,6 @@
 # Market Duel — a pricing tool for EVE Online
 
-Version 1.01
+Version 1.02
 
 Two markets compete for your business. The ★ marks the winner.
 
@@ -23,8 +23,8 @@ EVE Online's market data via ESI, EVE's official API. No other website is querie
 is sent anywhere else.
 
 ## Support
-If Market Duel helped earn or save you some ISK, consider sending an in-game tip to **Ax*ii*om Jones**.
-ISK only, please. Fly safe! o7
+If Market Duel helped earn or save you some ISK, an in-game tip to **Ax*ii*om Jones** would be appreciated.
+Fly safe! o7
 
 ## Credits
 - Market data: EVE Online ESI (public endpoints).
