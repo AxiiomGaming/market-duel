@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="application-name" content="Market Duel">
-<meta name="version" content="1.02">
+<meta name="version" content="1.03">
 <title>Market Duel — a pricing tool for EVE Online</title>
 <style>
 /* Lexend font (SIL Open Font License 1.1) built in, so the page makes no font requests to other sites */
@@ -66,6 +66,10 @@ td.num,th.num{text-align:right;white-space:nowrap}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--bg) 45%,transparent)}
 td.best{color:var(--win);font-weight:700}
 .starkey{margin:0}
+.limit{display:flex;gap:8px;align-items:baseline}
+.limit-i{flex:none;display:inline-grid;place-items:center;width:1.25em;height:1.25em;border-radius:50%;font-size:.85em;font-weight:700;
+  font-style:italic;border:1.5px solid var(--muted);color:var(--muted);transform:translateY(.15em)}
+td .part{font-size:.8em;font-weight:400;color:var(--muted)}
 .greenstar{color:var(--win)}
 tr.grouphead td{background:color-mix(in srgb,var(--win) 13%,var(--card))!important;border-top:1px solid color-mix(in srgb,var(--win) 35%,var(--line));font-weight:700;font-size:.9rem;color:var(--ink);padding-top:12px}
 .wtanote{margin:6px 0 0}
@@ -116,6 +120,11 @@ kbd{font:inherit;font-size:.85em;font-weight:500;padding:1px 7px;border:1px soli
 .split .count{color:var(--muted)}
 .gain{font-weight:700;color:var(--win)}
 .split .total button{justify-self:start;margin-top:10px}
+.stations{display:grid;gap:4px;margin-top:10px;justify-items:start}
+.stations label{display:grid;gap:4px;width:100%}
+.stations select{font-size:.9rem;padding:8px 10px}
+.stations button{margin-top:4px!important}
+.onestations{max-width:620px}
 .splitsum{font-weight:500;margin:14px 0 0}
 .split .small{margin:8px 0 0}
 </style>
@@ -189,6 +198,8 @@ kbd{font:inherit;font-size:.85em;font-weight:500;padding:1px 7px;border:1px soli
       <p class="small wtanote" id="wta-note" hidden></p>
     </div>
     <p class="small" id="basis"></p>
+    <p class="small limit"><span class="limit-i" aria-hidden="true">i</span> <span>Player-owned stations (citadels) aren't in EVE's
+      public market data. Better prices may be discovered at citadels using EVE's in-game Regional Market (<kbd>Alt</kbd> + <kbd>R</kbd>).</span></p>
     <div class="tablewrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
     <p class="small starkey" id="starkey"><span class="greenstar">★</span> marks the winning price. More stars mean a bigger difference between the two markets:
       <span class="greenstar">★★</span> 50k ISK or more, <span class="greenstar">★★★</span> 100k or more. Gold stars are Big wins: <span class="goldstar">★</span> 1M or more,
@@ -203,7 +214,7 @@ kbd{font:inherit;font-size:.85em;font-weight:500;padding:1px 7px;border:1px soli
       would be appreciated. Fly safe! o7</p>
     <p>No accounts, no cookies, no tracking. Prices come directly from EVE Online's market data via ESI, EVE's official API. No other website is queried.</p>
     <p>EVE Online is a trademark of CCP ehf. Market Duel is a fan-made tool and is not affiliated with or endorsed by CCP.</p>
-    <p>Market Duel version 1.02</p>
+    <p>Market Duel version 1.03</p>
   </footer>
 </main>
 
@@ -215,6 +226,10 @@ kbd{font:inherit;font-size:.85em;font-weight:500;padding:1px 7px;border:1px soli
 /* ---------- data ---------- */
 /* GEO: {regionID: {n: name, y: {systemID: {n: name, s: [[stationID, short name], ...]}}}} — NPC stations only */
 var GEO = JSON.parse(document.getElementById("geo").textContent);
+/* station ID -> "System Station name", for naming where a winning order sits (NPC stations only) */
+var STATION_NAME = {};
+Object.keys(GEO).forEach(function(r){ var ys=GEO[r].y; Object.keys(ys).forEach(function(y){
+  ys[y].s.forEach(function(st){ STATION_NAME[st[0]] = ys[y].n+" "+st[1]; }); }); });
 var HUBS = [
   {key:"jita",    label:"Jita 4-4 (Caldari Navy)",          short:"Jita 4-4", region:10000002, station:60003760},
   {key:"amarr",   label:"Amarr VIII (Emperor Family Academy)", short:"Amarr",  region:10000043, station:60008494},
@@ -384,16 +399,24 @@ function getOrders(region, type, side){
   orderCache[key]=page(1);
   return orderCache[key];
 }
-/* selling: the highest buy order; buying: the cheapest sell order. 0 = nobody at this market. */
-function bestPrice(orders, m, mode){
-  var best=0;
-  for(var i=0;i<orders.length;i++){
-    var o=orders[i];
-    if(m.station && o.location_id!==m.station) continue;
-    if(m.system && o.system_id!==m.system) continue;
-    if(mode==="sell" ? o.price>best : (best===0 || o.price<best)) best=o.price;
+/* fill the count from the best orders down, like EVE's market window does (Clay, 2026-10-22: one station had
+   only 1 cheap Mining Drone I and 4 were wanted). Selling: highest buy orders first (respecting a buy order's
+   minimum volume); buying: cheapest sell orders first. Returns the ISK for the units that can be filled, how
+   many could be filled, and how many came from each station. */
+function fillOrders(orders, m, mode, qty){
+  var mine=orders.filter(function(o){ return (!m.station || o.location_id===m.station) && (!m.system || o.system_id===m.system); });
+  mine.sort(mode==="sell" ? function(a,b){ return b.price-a.price; } : function(a,b){ return a.price-b.price; });
+  var need=qty, cost=0, fills=[], byLoc={};
+  for(var i=0;i<mine.length && need>0;i++){
+    var o=mine[i], vol = o.volume_remain!=null ? o.volume_remain : need;
+    var take=Math.min(vol, need);
+    if(take<=0) continue;
+    if(mode==="sell" && o.min_volume>1 && take<o.min_volume) continue;
+    need-=take; cost+=take*o.price;
+    if(!byLoc[o.location_id]){ byLoc[o.location_id]={loc:o.location_id, qty:0, cost:0}; fills.push(byLoc[o.location_id]); }
+    byLoc[o.location_id].qty+=take; byLoc[o.location_id].cost+=take*o.price;
   }
-  return best;
+  return {cost:cost, filled:qty-need, fills:fills};
 }
 /* index of the better of two values, -1 if equal or neither; 0 means "none available" */
 function better(a, b, mode){
@@ -573,11 +596,11 @@ function run(){
     var known=list.filter(function(it){ return it.id; });
     var tasks=[], failed=0;
     known.forEach(function(it){
-      it.prices=[0,0]; it.ok=[false,false];
+      it.prices=[0,0]; it.ok=[false,false]; it.locs=[0,0]; it.filled=[0,0]; it.fills=[[],[]];
       mk.forEach(function(m,mi){
         tasks.push(function(){
           /* to sell you hit buy orders; to buy you hit sell orders */
-          return getOrders(m.region, it.id, mode==="sell" ? "buy" : "sell").then(function(orders){ it.prices[mi]=bestPrice(orders,m,mode)*it.qty; it.ok[mi]=true; },
+          return getOrders(m.region, it.id, mode==="sell" ? "buy" : "sell").then(function(orders){ var f=fillOrders(orders,m,mode,it.qty); it.prices[mi]=f.cost; it.filled[mi]=f.filled; it.fills[mi]=f.fills; it.locs[mi]=f.fills.length?f.fills[0].loc:0; it.ok[mi]=true; },
                                                   function(e){ failed++; throw e; });
         });
       });
@@ -606,29 +629,99 @@ function copyText(text){
 /* "Name xCount" lines, no thousands separators: EVE's Multibuy window and Market Duel's paste box both read this */
 function listText(items){ return items.map(function(it){ return it.name+" x"+it.qty; }).join("\n"); }
 
-/* how the list divides up (Clay, 2026-10-19). Rule: the market that lists an item wins it; a market never
-   wins an item by not listing it.
-   compared  = items in the "Winner takes all" totals (Sell: listed at one or both; Buy: listed at both —
-               in Buy a missing item would make a total look cheaper, so it stays out of the totals)
-   onlyAt[i] = Buy mode: listed only at market i (on that market's list, not in the totals)
-   notAt[i]  = listed at the other market but not at market i (both modes)
+/* how the list divides up (Clay, 2026-10-19; counts added 2026-10-22). Rule: the market that lists an item wins
+   it; a market never wins an item by not listing it — and in Buy mode, by not having enough of it.
+   compared  = items in the "Winner takes all" totals (Sell: a buyer at one or both; Buy: enough at both —
+               in Buy a missing unit would make a total look cheaper, so those items stay out of the totals)
+   onlyAt[i] = Buy mode: only market i has enough (or, if neither has enough, i has more); on i's list
+   notAt[i]  = what market i can't take or supply: {name, qty: the missing units}
    neither   = listed at neither market
    failed    = a price look-up failed */
+function hasAll(it, i){ return it.filled[i]===it.qty; }
+function winnerOf(it, mode){
+  var a=it.prices[0], b=it.prices[1];
+  if(mode==="sell") return better(a,b,mode);
+  var fa=it.filled[0], fb=it.filled[1];
+  if(hasAll(it,0) && hasAll(it,1)) return better(a,b,mode);
+  if(hasAll(it,0)) return 0;
+  if(hasAll(it,1)) return 1;
+  if(!fa && !fb) return -1;
+  if(fa!==fb) return fa>fb ? 0 : 1;
+  return better(a,b,mode);
+}
 function classify(priced, mode){
   var r={compared:[], onlyAt:[[],[]], notAt:[[],[]], neither:[], failed:[]};
   priced.forEach(function(it){
-    var a=it.prices[0], b=it.prices[1];
-    it.onlyHere=false;
+    it.onlyHere=false; it.shortBoth=false;
     if(!it.ok[0] || !it.ok[1]){ r.failed.push(it); return; }
-    if(!a && !b){ r.neither.push(it); return; }
-    if(!a || !b) r.notAt[a?1:0].push(it);
-    if(mode==="buy" && (!a || !b)){ it.onlyHere=true; r.onlyAt[a?0:1].push(it); return; }
+    if(!it.filled[0] && !it.filled[1]){ r.neither.push(it); return; }
+    [0,1].forEach(function(i){ var miss=it.qty-it.filled[i]; if(miss>0) r.notAt[i].push({name:it.name, qty:miss, prices:it.prices}); });
+    if(mode==="buy" && !(hasAll(it,0) && hasAll(it,1))){
+      it.onlyHere=true; it.shortBoth=!hasAll(it,0) && !hasAll(it,1);
+      r.onlyAt[winnerOf(it,mode)].push(it); return;
+    }
     r.compared.push(it);
   });
   return r;
 }
+/* a market's list for copying: each item with the units that market can actually fill */
+function unitsAt(items, i){ return items.map(function(it){ return {name:it.name, qty:it.filled[i], prices:it.prices}; }); }
+/* the gain of an item at market i over the other market (0 when they can't be compared) */
+function gainAt(it, i, mode){
+  var o=1-i;
+  if(mode==="sell") return it.prices[i]-it.prices[o];
+  return hasAll(it,0) && hasAll(it,1) ? it.prices[o]-it.prices[i] : 0;
+}
 function count(n){ return n+" item"+(n===1?"":"s"); }
 function value(it){ return Math.max(it.prices[0],it.prices[1]); }
+
+/* where an order sits: an NPC station's name, or a numbered player structure (their names aren't public) */
+var placeName=function(id){ return STATION_NAME[id] || "a player structure"; };
+function placeNamer(){
+  var structs={}, n=0;
+  return function(id){
+    if(STATION_NAME[id]) return STATION_NAME[id];
+    if(!(id in structs)) structs[id]=++n;
+    return "Player structure "+structs[id]+" (name not public)";
+  };
+}
+/* for a whole-system or whole-region market: the stations holding its winning orders, biggest gain first,
+   each with its own list, because EVE's Multibuy buys at one station (Clay, 2026-10-22) */
+function stationPicker(items, i, mk, mode){
+  var sell=mode==="sell", groups={}, order=[];
+  items.forEach(function(it){
+    var g0=gainAt(it,i,mode);
+    it.fills[i].forEach(function(f){      /* one item can be split over several stations */
+      if(!groups[f.loc]){ groups[f.loc]={loc:f.loc, items:[], gain:0}; order.push(groups[f.loc]); }
+      var g=groups[f.loc]; g.items.push({name:it.name, qty:f.qty, prices:it.prices});
+      g.gain += it.filled[i] ? g0*f.qty/it.filled[i] : 0;
+    });
+  });
+  var all=unitsAt(items, i);
+  order.sort(function(a,b){ return (b.gain-a.gain) || (b.items.length-a.items.length); });
+  var wrap=el("div","stations");
+  if(order.length===1){
+    wrap.appendChild(el("div","small","All at "+placeName(order[0].loc)));
+    wrap.appendChild(copyButton(all));
+    return wrap;
+  }
+  var lab=el("label","small","List for one station ("+order.length+" stations):");
+  var sel=document.createElement("select");
+  /* what a station's list holds: "Mining Drone I x4" for one item, "3 items (1,004 units)" for several (Clay, 2026-10-22) */
+  function holds(list){
+    if(list.length===1) return list[0].name+" x"+list[0].qty.toLocaleString();
+    var u=list.reduce(function(t,it){ return t+it.qty; },0);
+    return count(list.length)+" ("+u.toLocaleString()+" units)";
+  }
+  order.forEach(function(g,k){
+    opt(sel, k, placeName(g.loc)+" — "+holds(g.items)
+      +(g.gain>0 ? ", "+(sell ? "earns "+isk(g.gain)+" ISK more" : "saves "+isk(g.gain)+" ISK") : ""));
+  });
+  opt(sel, "all", "Every station — "+holds(all));
+  lab.appendChild(sel); wrap.appendChild(lab);
+  wrap.appendChild(copyButton(function(){ return sel.value==="all" ? all : order[+sel.value].items; }));
+  return wrap;
+}
 
 /* "Split the haul": the items each market wins, their total, what the trip there gains, and a copy button */
 function renderSplit(lists, strict, mk, mode, G){
@@ -646,17 +739,16 @@ function renderSplit(lists, strict, mk, mode, G){
     /* is the trip worth it? what the winner gains over the other market, for the whole list */
     var diff=0, missingThere=0;
     lists[only].forEach(function(it){
-      var pw=it.prices[only], po=it.prices[other];
-      if(sell) diff+=pw-po;
-      else if(po) diff+=po-pw;
-      else missingThere++;
+      diff+=gainAt(it, only, mode);
+      if(!sell && !hasAll(it, other)) missingThere++;
     });
     var p=el("p","splitsum");
     p.appendChild(document.createTextNode(sell ? "Selling everything at "+mk[only].short+" earns " : "Buying everything at "+mk[only].short+" saves "));
     var g=el("span","gain",isk(diff)+" ISK"); g.title=full(diff); p.appendChild(g);
     p.appendChild(document.createTextNode(sell ? " more than selling it at "+mk[other].short+"." : " compared with buying at "+mk[other].short+"."));
     if(diff>0) box.appendChild(p);
-    if(missingThere) box.appendChild(el("p","splitsum",mk[other].short+" doesn't sell "+missingThere+" of these items."));
+    if(missingThere) box.appendChild(el("p","splitsum",mk[other].short+" doesn't have enough of "+missingThere+" of these items."));
+    if(!mk[only].station){ var sp=stationPicker(lists[only], only, mk, mode); sp.classList.add("onestations"); box.appendChild(sp); }
     return;
   }
   var grid=el("div","totals"), gains=[0,0];
@@ -664,9 +756,8 @@ function renderSplit(lists, strict, mk, mode, G){
     var o=1-i, sum=0, gain=0, onlyHere=0;
     lists[i].forEach(function(it){
       sum+=it.prices[i];
-      if(sell) gain+=it.prices[i]-it.prices[o];
-      else if(it.prices[o]) gain+=it.prices[o]-it.prices[i];
-      else onlyHere++;
+      gain+=gainAt(it, i, mode);
+      if(!sell && !hasAll(it, o)) onlyHere++;
     });
     gains[i]=gain;
     var c=el("div","total");
@@ -678,8 +769,8 @@ function renderSplit(lists, strict, mk, mode, G){
                                    : "Costs "+isk(gain)+" ISK less than at "+mk[o].short);
       g.title=full(gain); c.appendChild(g);
     }
-    if(onlyHere) c.appendChild(el("div","small","Not for sale at "+mk[o].short+": "+count(onlyHere)));
-    c.appendChild(copyButton(lists[i]));
+    if(onlyHere) c.appendChild(el("div","small","Not enough at "+mk[o].short+": "+count(onlyHere)));
+    c.appendChild(mk[i].station ? copyButton(unitsAt(lists[i], i)) : stationPicker(lists[i], i, mk, mode));
     grid.appendChild(c);
   });
   box.appendChild(grid);
@@ -690,9 +781,10 @@ function renderSplit(lists, strict, mk, mode, G){
     : "Splitting the haul saves "+isk(more)+" ISK compared with buying everything at "+mk[G].short+"."));
 }
 function copyButton(items){
+  var get = typeof items==="function" ? items : function(){ return items; };
   var btn=el("button","secondary","Copy list"); btn.type="button";
   btn.addEventListener("click",function(){
-    copyText(listText(items)).then(function(){ btn.textContent="Copied ✓"; },function(){ btn.textContent="Copy failed"; })
+    copyText(listText(get())).then(function(){ btn.textContent="Copied ✓"; },function(){ btn.textContent="Copy failed"; })
       .then(function(){ setTimeout(function(){ btn.textContent="Copy list"; },2000); });
   });
   return btn;
@@ -708,8 +800,8 @@ function renderNotListed(c, mk, mode){
   if(!groups.length) return;
   var sell=mode==="sell";
   box.appendChild(el("p","sectitle","Not listed"));
-  box.appendChild(el("p","sub", sell ? "Items with no buyer at a market. Copy a list to look for buyers elsewhere."
-                                     : "Items not for sale at a market. Copy a list to look for them elsewhere."));
+  box.appendChild(el("p","sub", sell ? "Items, or parts of a count, with no buyer at a market. Copy a list to look for buyers elsewhere."
+                                     : "Items, or parts of a count, not for sale at a market. Copy a list to look for them elsewhere."));
   var grid=el("div","totals");
   groups.forEach(function(g){
     var items=g[1].slice().sort(function(x,y){ return value(y)-value(x); });
@@ -727,20 +819,24 @@ function renderNotListed(c, mk, mode){
 
 function render(list, mk, failed, total, mode){
   var sell=mode==="sell";
+  placeName=placeNamer();
   var out=document.getElementById("out"), tb=document.getElementById("tbody"), th=document.getElementById("thead");
   var priced=list.filter(function(it){ return it.id; });
   var c=classify(priced, mode);
 
   /* "Winner takes all" compares only the items both markets can be compared on */
-  var totals=[0,0], missingAt=[0,0];
-  c.compared.forEach(function(it){ [0,1].forEach(function(i){ totals[i]+=it.prices[i]; if(!it.prices[i]) missingAt[i]++; }); });
+  var totals=[0,0], missingAt=[0,0], partAt=[0,0];
+  c.compared.forEach(function(it){ [0,1].forEach(function(i){
+    totals[i]+=it.prices[i];
+    if(!it.filled[i]) missingAt[i]++; else if(!hasAll(it,i)) partAt[i]++;
+  }); });
   var winT = c.compared.length ? better(totals[0], totals[1], mode) : -1;
   var G = winT>=0 ? winT : 0, O = 1-G;          /* G: the duel's winner, listed first */
 
   /* which market's list each item goes on, and the difference that earns its stars */
   var lists=[[],[]], strict=false;
   c.compared.forEach(function(it){
-    var a=it.prices[0], b=it.prices[1], w=better(a,b,mode);
+    var a=it.prices[0], b=it.prices[1], w=winnerOf(it,mode);
     if(w===-1) w=G; else strict=true;            /* same price: it goes with the duel's winner, so no trip for nothing */
     it.side=w; it.diff = a&&b ? Math.abs(a-b) : Math.max(a,b);   /* Sell with no buyer at the other market: the full price */
     lists[w].push(it);
@@ -749,13 +845,13 @@ function render(list, mk, failed, total, mode){
 
   /* table order, like a number line: the winner's biggest wins at the top, same prices in the middle,
      the other market's biggest wins at the very bottom. Buy-mode items only one market sells sit next to the middle. */
-  function key(it){ var sg = it.side===G ? 1 : -1; return it.onlyHere ? sg*1e-6 : sg*it.diff; }
+  function key(it){ var sg = it.side===G ? 1 : -1; return it.shortBoth ? 0 : it.onlyHere ? sg*1e-6 : sg*it.diff; }
   function byKey(x,y){ return (key(y)-key(x)) || (value(y)-value(x)); }
   function byMagnitude(x,y){ return (Math.abs(key(y))-Math.abs(key(x))) || (value(y)-value(x)); }
 
   document.getElementById("basis").textContent = sell
-    ? "Selling instantly to the best buy order at each market. Before sales tax."
-    : "Buying instantly from the cheapest sell order at each market.";
+    ? "Selling instantly to the best buy orders at each market, filling your count from the highest price down. Before sales tax."
+    : "Buying instantly from the cheapest sell orders at each market, filling your count from the lowest price up.";
 
   document.getElementById("wta-sub").textContent = sell ? "If you sell everything at one market" : "If you buy everything at one market";
   var tw=document.getElementById("totals"); tw.textContent="";
@@ -764,13 +860,14 @@ function render(list, mk, failed, total, mode){
     card.appendChild(el("div","where",m.label));
     var v=el("div","isk",isk(totals[i])+" ISK"); v.title=full(totals[i]); card.appendChild(v);
     if(sell && missingAt[i]) card.appendChild(el("div","small","No buyer for "+count(missingAt[i])));
+    if(sell && partAt[i]) card.appendChild(el("div","small","Not enough buyers for "+count(partAt[i])));
     tw.appendChild(card);
   });
 
   /* one line of math: how much the winning market beats the other by, for the whole list */
   var wl=document.getElementById("wta-line"); wl.textContent=""; wl.hidden=false;
   if(!c.compared.length){
-    wl.textContent = sell ? "No item has a buyer at either market." : "No item is for sale at both markets, so there is nothing to compare.";
+    wl.textContent = sell ? "No item has a buyer at either market." : "No item is for sale in full at both markets, so there is nothing to compare.";
   } else if(winT<0){
     wl.textContent = sell ? "Both markets pay the same total." : "Both markets charge the same total.";
   } else {
@@ -782,7 +879,7 @@ function render(list, mk, failed, total, mode){
   }
   var nb=c.onlyAt[0].length+c.onlyAt[1].length+c.neither.length;
   var wn=document.getElementById("wta-note"); wn.hidden=sell || !nb;
-  wn.textContent = wn.hidden ? "" : "These totals compare only items for sale at both markets. "+count(nb)+(nb===1?" is":" are")+" left out (see Not listed, below).";
+  wn.textContent = wn.hidden ? "" : "These totals compare only items both markets have enough of. "+count(nb)+(nb===1?" is":" are")+" left out (see Not listed, below).";
 
   th.textContent="";
   var hr=el("tr"); hr.appendChild(el("th",null,"Item")); hr.appendChild(el("th","num","Qty"));
@@ -796,27 +893,32 @@ function render(list, mk, failed, total, mode){
     var tr=el("tr");
     tr.appendChild(el("td",null,it.name));
     tr.appendChild(el("td","num",it.qty.toLocaleString()));
-    var w = better(it.prices[0], it.prices[1], mode);
+    var w = winnerOf(it, mode);
+    var comparable = sell || (hasAll(it,0) && hasAll(it,1));   /* Buy: a difference only means something when both have enough */
     it.prices.forEach(function(p,i){
-      var td;
+      var td, f=it.filled[i], part = f && f<it.qty;
+      var base=full(p)+(part ? " for "+f.toLocaleString()+" of "+it.qty.toLocaleString() : "");
+      var at = mk[i].station || !it.fills[i].length ? "" : " — at "+it.fills[i].map(function(x){ return placeName(x.loc)+(it.fills[i].length>1?" ("+x.qty.toLocaleString()+")":""); }).join(", ");
       if(!it.ok[i]) td=el("td","num none","error");
-      else if(!p) td=el("td","num none",sell?"no buyer":"not for sale");
+      else if(!f) td=el("td","num none",sell?"no buyer":"not for sale");
       else if(i===w){
         /* the winner gets one star, plus more for a big difference between the markets */
-        var o=it.prices[1-i], diff=o ? Math.abs(p-o) : (sell ? p : 0);
+        var o=it.prices[1-i], diff = !comparable ? 0 : o ? Math.abs(p-o) : p;
         td=el("td","num best");
         if(diff>=BIG_WIN){
           var gs=el("span","goldstar",goldStars(diff)); gs.setAttribute("aria-label","Big win"); td.appendChild(gs);
           td.appendChild(document.createTextNode(" "+isk(p)));
           bigWins.push({it:it, diff:diff, at:i, other:o});
         } else td.textContent=stars(diff)+" "+isk(p);
-        td.title=full(p)+" — "+(o||sell ? "wins by "+full(diff) : "not for sale at "+mk[1-i].short);
+        td.title=base+" — "+(comparable ? "wins by "+full(diff)
+                                         : hasAll(it,i) ? "only "+mk[i].short+" has enough" : "neither market has enough; more here")+at;
       }
       else {
         td=el("td","num",isk(p));
         var op=it.prices[1-i];
-        td.title=full(p)+(w===-1 ? " — same price at both markets" : op ? " — loses by "+full(Math.abs(p-op)) : "");
+        td.title=base+(w===-1 ? " — same price at both markets" : comparable && op ? " — loses by "+full(Math.abs(p-op)) : part ? " — not enough here" : "")+at;
       }
+      if(part && it.ok[i]) td.appendChild(el("span","part"," ("+f.toLocaleString()+" of "+it.qty.toLocaleString()+")"));
       tr.appendChild(td);
     });
     tb.appendChild(tr);
@@ -824,13 +926,15 @@ function render(list, mk, failed, total, mode){
   /* sections, top to bottom like a number line (Clay, 2026-10-19):
      wins at the duel's winner / (Buy) only for sale there / same price at both / (Buy) only for sale at the other / wins at the other */
   function wins(s){ return lists[s].filter(function(it){ return !it.onlyHere && it.prices[0]!==it.prices[1]; }); }
-  function only(s){ return lists[s].filter(function(it){ return it.onlyHere; }); }
+  function only(s){ return lists[s].filter(function(it){ return it.onlyHere && !it.shortBoth; }); }
+  var shortBoth=lists[0].concat(lists[1]).filter(function(it){ return it.shortBoth; });
   var ties=c.compared.filter(function(it){ return it.prices[0]===it.prices[1]; });
   function winHead(s){ return (sell?"Sells for more at ":"Costs less at ")+mk[s].short; }
   [[winHead(G), wins(G)],
-   ["Only for sale at "+mk[G].short, only(G)],
+   ["Only "+mk[G].short+" has enough", only(G)],
    ["Same price at both markets", ties],
-   ["Only for sale at "+mk[O].short, only(O)],
+   ["Not enough at either market", shortBoth],
+   ["Only "+mk[O].short+" has enough", only(O)],
    [winHead(O), wins(O)]].forEach(function(sec){
     if(!sec[1].length) return;
     head(sec[0]+" — "+count(sec[1].length));

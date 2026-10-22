@@ -1,6 +1,6 @@
 # Market Duel — a pricing tool for EVE Online
 
-Version 1.02
+Version 1.03
 
 Two markets compete for your business. The ★ marks the winner.
 
@@ -16,6 +16,9 @@ get (or save) by going there, and a **Copy list** button. A copied list can be p
 window or back into Market Duel. Items not listed at a market (no buyer, or not for sale) are
 gathered into three lists, not listed at the first market, not listed at the second, and not listed at
 either, each with its own **Copy list** button, so you can look for them elsewhere.
+
+**Limit:** player-owned stations (citadels) aren't in EVE's public market data. Better prices may be
+discovered at citadels using EVE's in-game Regional Market (Alt + R).
 
 ## Privacy
 No accounts, no cookies, no tracking. The page is a single static file. Prices come directly from
