@@ -345,8 +345,9 @@ function esiAuth(path, qs, retried){
    md-cit-sys  {character: {system: {ids: [...], at: time}}} — which citadels each system has, kept a day */
 var DAY=864e5;
 var SC=load("md-structs",{}), CS=load("md-cit-sys",{});
-/* structure types that can't have a market: engineering complexes, refineries, jump bridges, cyno beacons and jammers */
-var NO_MARKET={35825:1,35826:1,35827:1,35835:1,35836:1,35840:1,35841:1,37534:1};
+/* structure types that can't have a market: jump bridges, cyno beacons and jammers (no docking). Engineering complexes
+   and refineries are tried too (2.0 beta, 10-22: skipping them hid IChooseYou's market in Sobaseki) */
+var NO_MARKET={35840:1,35841:1,37534:1};
 function isCitadelId(id){ return +id>1e12; }
 function citName(id){ var e=SC[id]; return e && e.n ? e.n : "Citadel "+id; }
 function marketClosed(e){ return e.mx && Date.now()-(e.mat||0)<DAY; }
@@ -452,7 +453,9 @@ function makePicker(box, title, storeKey, def){
     function report(){
       if(ticket!==lookingFor) return;
       var n=savedCitadels(y, s).length;
-      citline.textContent = n ? n+" citadel"+(n===1?"":"s")+" with a market you may use: in the Station list." : "No citadel market found here for "+s.name+".";
+      var all=((CS[s.id]||{})[y]||{ids:[]}).ids.length;
+      citline.textContent = n ? n+" citadel"+(n===1?"":"s")+" found that "+s.name+" can use: in the Station list."
+        : "No citadel market found here for "+s.name+(all ? " ("+all+" player structure"+(all===1?"":"s")+" found, none with a market open to you)." : ".");
     }
     if(systemSearched(y, s)){ report(); return; }
     citline.textContent="Looking for citadels in "+sysName(y)+"…";
