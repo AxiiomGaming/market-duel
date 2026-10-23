@@ -40,7 +40,7 @@ td.n{text-align:right}
   <h2>1. Sign in</h2>
   <p id="who">Not signed in.</p>
   <p class="small">You sign in on CCP's own site (login.eveonline.com), not here. Market Duel never sees your password and can
-    only read market prices and citadel names.</p>
+    only read market prices, citadel names, and search for citadels by name.</p>
   <button id="signin" type="button">Sign in with EVE</button>
   <button id="refresh" type="button" class="secondary">Refresh sign-in</button>
   <button id="signout" type="button" class="secondary">Sign out</button>
@@ -58,6 +58,17 @@ td.n{text-align:right}
     <input id="filter" type="text" placeholder="Type part of a citadel or system name"></label>
   <p></p>
   <select id="list" size="8"></select>
+</section>
+
+<section class="card">
+  <h2>2b. Search citadels by name</h2>
+  <p class="small">Finds citadels your character can use, including ones missing from the public list. Every citadel's
+    name starts with its system's name, so a system name finds that system's citadels.</p>
+  <label class="small">Name to search for (at least 3 letters)
+    <input id="q" type="text" placeholder="For example Sobaseki"></label>
+  <p></p>
+  <button id="search" type="button">Search</button>
+  <p id="searchinfo" class="small"></p>
 </section>
 
 <section class="card">
@@ -82,7 +93,7 @@ td.n{text-align:right}
 "use strict";
 var CLIENT_ID="b958bcf58a704d21a13cb606f02e8600";
 var CALLBACK="https://axiiomgaming.github.io/market-duel/callback.html";
-var SCOPES="esi-markets.structure_markets.v1 esi-universe.read_structures.v1";
+var SCOPES="esi-markets.structure_markets.v1 esi-universe.read_structures.v1 esi-search.search_structures.v1";
 var AUTH_URL="https://login.eveonline.com/v2/oauth/authorize/";
 var TOKEN_URL="https://login.eveonline.com/v2/oauth/token";
 var ESI="https://esi.evetech.net/latest";
@@ -174,8 +185,11 @@ $("find").onclick=function(){
   }).catch(function(e){ log("citadels: list FAILED — "+e.message); });
 };
 $("stop").onclick=function(){ stopFlag=true; };
+var namesRunning=false;
 $("names").onclick=function(){
+  if(namesRunning) return;
   if(!ids.length){ log("names: press Find citadels first"); return; }
+  namesRunning=true; $("names").disabled=true;
   var c=cache(), todo=ids.filter(function(id){ return !c[id]; }), done=0, t0=Date.now();
   stopFlag=false; log("names: "+todo.length+" to look up ("+(ids.length-todo.length)+" already known)");
   var i=0, active=0;
@@ -197,7 +211,46 @@ $("names").onclick=function(){
       }
     }
     next();
-  }).then(function(){ saveCache(c); fillList(); });
+  }).then(function(){ saveCache(c); fillList(); namesRunning=false; $("names").disabled=false; });
+};
+
+/* ---------- 2b. search by name (needs the search permission) ---------- */
+function lookupNames(list, c){
+  var i=0;
+  function one(){
+    if(i>=list.length) return Promise.resolve();
+    var id=list[i++];
+    if(c[id]) return one();
+    return esi("/universe/structures/"+id+"/").then(function(r){
+      c[id] = r.ok ? {n:r.json.name, s:r.json.solar_system_id, t:r.json.type_id} : {x:r.status};
+    }).catch(function(){}).then(one);
+  }
+  return Promise.all([one(),one(),one(),one()]);
+}
+var searching=false;
+$("search").onclick=function(){
+  var text=$("q").value.trim(), s=getSSO();
+  if(searching) return;
+  if(text.length<3){ $("searchinfo").textContent="Type at least 3 letters."; return; }
+  if(!s){ $("searchinfo").textContent="Sign in first (step 1)."; return; }
+  if(s.scopes.indexOf("esi-search.search_structures.v1")<0){
+    $("searchinfo").textContent="Your sign-in is from before the search permission was added. Sign out, then sign in again and approve the new permission.";
+    log("search: needs a new sign-in for the search permission"); return; }
+  searching=true; $("search").disabled=true; $("searchinfo").textContent="Searching…";
+  log("search: looking for citadels named \""+text+"\"");
+  esi("/characters/"+s.id+"/search/?categories=structure&strict=false&search="+encodeURIComponent(text)).then(function(r){
+    if(!r.ok) throw new Error("HTTP "+r.status+" "+(r.text||"").slice(0,150));
+    var found=(r.json && r.json.structure) || [], c=cache();
+    log("search: EVE found "+found.length+" citadel"+(found.length===1?"":"s"));
+    return lookupNames(found, c).then(function(){
+      saveCache(c);
+      var named=found.filter(function(id){ return c[id] && c[id].n; });
+      $("searchinfo").textContent="Found "+found.length+" citadel"+(found.length===1?"":"s")+(named.length<found.length?" ("+(found.length-named.length)+" without a readable name)":"")+". They are now in the list above.";
+      log("search: names — "+named.map(function(id){ return c[id].n; }).join("; "));
+      $("filter").value=text; fillList();
+    });
+  }).catch(function(e){ $("searchinfo").textContent="Search failed: "+e.message; log("search: FAILED — "+e.message); })
+    .then(function(){ searching=false; $("search").disabled=false; });
 };
 
 /* ---------- 3. read one citadel's market ---------- */
