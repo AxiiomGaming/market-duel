@@ -20,10 +20,10 @@ a{color:inherit}
 <main><div class="card">
   <p id="msg">Finishing your EVE sign-in…</p>
   <p class="small" id="detail"></p>
-  <p id="back" hidden><a href="./beta/">Back to the test page</a></p>
+  <p id="back" hidden><a href="./">Back to Market Duel</a></p>
 </div></main>
 <script>
-/* Market Duel sign-in callback (2.0). CCP's login sends the player back here with a one-time code; this page
+/* Market Duel sign-in callback (2.0; version 2.0). CCP's login sends the player back here with a one-time code; this page
    swaps it for a permission key (token) using PKCE, saves the key in this browser only, and returns to the
    page that started the sign-in. No password ever reaches this page. */
 (function(){
@@ -40,8 +40,8 @@ var q=new URLSearchParams(location.search), pending=null;
 try{ pending=JSON.parse(sessionStorage.getItem("md-sso-pending")||"null"); }catch(e){}
 if(pending && pending.ret) back.querySelector("a").href=pending.ret;
 if(q.get("error")){ fail("EVE's login said no: "+q.get("error"), q.get("error_description")||""); return; }
-if(!q.get("code")){ fail("No sign-in code came back.", "Start the sign-in again from the test page."); return; }
-if(!pending || pending.state!==q.get("state")){ fail("This sign-in doesn't match the one this browser started.", "For safety it was not used. Start again from the test page, in the same tab."); return; }
+if(!q.get("code")){ fail("No sign-in code came back.", "Start the sign-in again from Market Duel."); return; }
+if(!pending || pending.state!==q.get("state")){ fail("This sign-in doesn't match the one this browser started.", "For safety it was not used. Start again from Market Duel, in the same tab."); return; }
 var body=new URLSearchParams({grant_type:"authorization_code", code:q.get("code"), client_id:CLIENT_ID, code_verifier:pending.verifier});
 fetch(TOKEN_URL,{method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:body.toString()})
   .then(function(r){ return r.text().then(function(t){ if(!r.ok) throw new Error("HTTP "+r.status+" "+t.slice(0,200)); return JSON.parse(t); }); },
@@ -55,7 +55,7 @@ fetch(TOKEN_URL,{method:"POST", headers:{"Content-Type":"application/x-www-form-
     sessionStorage.removeItem("md-sso-pending");
     try{ var log=JSON.parse(localStorage.getItem("md-sso-log")||"[]"); log.push(new Date().toISOString()+" callback: signed in as "+saved.name+" (scopes: "+saved.scopes.join(", ")+")"); localStorage.setItem("md-sso-log",JSON.stringify(log.slice(-50))); }catch(e){}
     msg.textContent="Signed in as "+saved.name+". Returning…";
-    location.replace(pending.ret || "./beta/");
+    location.replace(pending.ret || "./");
   })
   .catch(function(e){ fail("The sign-in could not be finished.", e.message); });
 })();
