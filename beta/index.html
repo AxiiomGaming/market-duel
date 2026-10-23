@@ -144,6 +144,8 @@ button.eve{font-size:1rem;padding:8px 20px}
 /* citadels in their own colour, so they stand out from NPC stations (Clay, 2026-10-22). Contrast: light 6.0:1, dark 8.2:1 */
 .cit{color:var(--cit)!important;font-weight:500}
 option.cit{font-weight:500}
+/* under the "List for one station" dropdown: the chosen station has only part of a count (Clay, 2026-10-22) */
+.partwarn{color:var(--warn);background:var(--warn-soft);border-radius:6px;padding:4px 10px;font-size:.9rem;font-weight:500}
 select.cit option:not(.cit){color:var(--ink);font-weight:400}
 </style>
 </head>
@@ -1015,7 +1017,7 @@ function stationPicker(items, i, mk, mode){
     var g0=gainAt(it,i,mode);
     it.fills[i].forEach(function(f){      /* one item can be split over several stations */
       if(!groups[f.loc]){ groups[f.loc]={loc:f.loc, items:[], gain:0}; order.push(groups[f.loc]); }
-      var g=groups[f.loc]; g.items.push({name:it.name, qty:f.qty, prices:it.prices});
+      var g=groups[f.loc]; g.items.push({name:it.name, qty:f.qty, prices:it.prices, of:it.filled[i]});
       g.gain += it.filled[i] ? g0*f.qty/it.filled[i] : 0;
     });
   });
@@ -1027,13 +1029,16 @@ function stationPicker(items, i, mk, mode){
     wrap.appendChild(copyButton(all));
     return wrap;
   }
-  var lab=el("label","small","List for one station ("+order.length+" stations):");
+  /* Clay, 2026-10-22: "Winning stations in Lonetrek (2 total). Pick one to copy its list:" */
+  var lab=el("label","small","Winning stations "+where(mk[i])+" ("+order.length+" total). Pick one to copy its list:");
   var sel=document.createElement("select");
-  /* what a station's list holds: "Mining Drone I x4" for one item, "3 items (1,004 units)" for several (Clay, 2026-10-22) */
+  /* what a station's list holds: "Mining Drone I x4" for one item, "3 items (1,004 units)" for several (Clay, 2026-10-22).
+     When a station gives only part of an item's count, say so, so the ranking makes sense: "Mining Drone I x1 of 4" */
   function holds(list){
-    if(list.length===1) return list[0].name+" x"+list[0].qty.toLocaleString();
+    if(list.length===1){ var it=list[0]; return it.name+" x"+it.qty.toLocaleString()+(it.of && it.qty<it.of ? " of "+it.of.toLocaleString() : ""); }
     var u=list.reduce(function(t,it){ return t+it.qty; },0);
-    return count(list.length)+" ("+u.toLocaleString()+" units)";
+    var part=list.filter(function(it){ return it.of && it.qty<it.of; }).length;
+    return count(list.length)+" ("+u.toLocaleString()+" units"+(part ? "; "+part+(part===1?" item":" items")+" only in part" : "")+")";
   }
   order.forEach(function(g,k){
     var o=opt(sel, k, placeName(g.loc)+" — "+holds(g.items)
@@ -1041,8 +1046,15 @@ function stationPicker(items, i, mk, mode){
     if(isCitadelId(g.loc)) o.className="cit";
   });
   opt(sel, "all", "Every station — "+holds(all));
-  tint(sel); sel.addEventListener("change",function(){ tint(sel); });
-  lab.appendChild(sel); wrap.appendChild(lab);
+  var warn=el("div","partwarn"); warn.hidden=true;
+  function showPart(){
+    var part = sel.value==="all" ? [] : order[+sel.value].items.filter(function(it){ return it.of && it.qty<it.of; });
+    warn.hidden=!part.length;
+    warn.textContent = part.length ? "⚠ Not the full count here: "+part.map(function(it){ return it.name+" ("+it.qty.toLocaleString()+" of "+it.of.toLocaleString()+")"; }).join(", ")
+      +". The rest is at "+(order.length>2 ? "other stations" : "the other station")+"." : "";
+  }
+  tint(sel); showPart(); sel.addEventListener("change",function(){ tint(sel); showPart(); });
+  lab.appendChild(sel); wrap.appendChild(lab); wrap.appendChild(warn);
   wrap.appendChild(copyButton(function(){ return sel.value==="all" ? all : order[+sel.value].items; }));
   return wrap;
 }
