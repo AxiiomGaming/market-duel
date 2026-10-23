@@ -1035,7 +1035,9 @@ function stationPicker(items, i, mk, mode){
     return wrap;
   }
   /* Clay, 2026-10-22: "Winning stations in Lonetrek (2 total). Pick one to copy its list:" */
-  var lab=el("label","small","Winning stations "+where(mk[i])+" ("+order.length+" total). Pick one to copy its list:");
+  /* two lines (Clay, 2026-10-23): the label took two lines anyway, so each sentence gets its own */
+  var lab=el("label","small"), lt=el("span",null,"Winning stations "+where(mk[i])+" ("+order.length+" total).");
+  lt.appendChild(document.createElement("br")); lt.appendChild(document.createTextNode("Pick one to copy its list:")); lab.appendChild(lt);
   var sel=document.createElement("select");
   /* what a station's list holds: "Mining Drone I x4" for one item, "3 items (1,004 units)" for several (Clay, 2026-10-22).
      A station that has fewer units than the count (at any price) is "short": "Mining Drone I x1 (only 1 here)" */
