@@ -992,6 +992,8 @@ function gainAt(it, i, mode){
   return hasAll(it,0) && hasAll(it,1) ? it.prices[o]-it.prices[i] : 0;
 }
 function count(n){ return n+" item"+(n===1?"":"s"); }
+/* "at" a station (NPC or citadel), "in" a system or region (Clay, 2026-10-22): "at Jita 4-4", "in Lonetrek" */
+function where(m){ return (m.station ? "at " : "in ")+m.short; }
 function value(it){ return Math.max(it.prices[0],it.prices[1]); }
 
 /* where an order sits: an NPC station's name, a citadel's name (known when signed in), or a numbered player structure */
@@ -1065,9 +1067,9 @@ function renderSplit(lists, strict, mk, mode, G){
       if(!sell && !hasAll(it, other)) missingThere++;
     });
     var p=el("p","splitsum");
-    p.appendChild(document.createTextNode(sell ? "Selling everything at "+mk[only].short+" earns " : "Buying everything at "+mk[only].short+" saves "));
+    p.appendChild(document.createTextNode(sell ? "Selling everything "+where(mk[only])+" earns " : "Buying everything "+where(mk[only])+" saves "));
     var g=el("span","gain",isk(diff)+" ISK"); g.title=full(diff); p.appendChild(g);
-    p.appendChild(document.createTextNode(sell ? " more than selling it at "+mk[other].short+"." : " compared with buying at "+mk[other].short+"."));
+    p.appendChild(document.createTextNode(sell ? " more than selling it "+where(mk[other])+"." : " compared with buying "+where(mk[other])+"."));
     if(diff>0) box.appendChild(p);
     if(missingThere) box.appendChild(el("p","splitsum",mk[other].short+" doesn't have enough of "+missingThere+" of these items."));
     if(!mk[only].station){ var sp=stationPicker(lists[only], only, mk, mode); sp.classList.add("onestations"); box.appendChild(sp); }
@@ -1087,11 +1089,11 @@ function renderSplit(lists, strict, mk, mode, G){
     var v=el("div","isk",isk(sum)+" ISK"); v.title=full(sum); c.appendChild(v);
     c.appendChild(el("div","count",count(lists[i].length)));
     if(gain>0){
-      var g=el("div","gain", sell ? "Earns "+isk(gain)+" ISK more than at "+mk[o].short
-                                   : "Costs "+isk(gain)+" ISK less than at "+mk[o].short);
+      var g=el("div","gain", sell ? "Earns "+isk(gain)+" ISK more than "+where(mk[o])
+                                   : "Costs "+isk(gain)+" ISK less than "+where(mk[o]));
       g.title=full(gain); c.appendChild(g);
     }
-    if(onlyHere) c.appendChild(el("div","small","Not enough at "+mk[o].short+": "+count(onlyHere)));
+    if(onlyHere) c.appendChild(el("div","small","Not enough "+where(mk[o])+": "+count(onlyHere)));
     c.appendChild(mk[i].station ? copyButton(unitsAt(lists[i], i)) : stationPicker(lists[i], i, mk, mode));
     grid.appendChild(c);
   });
@@ -1099,8 +1101,8 @@ function renderSplit(lists, strict, mk, mode, G){
   /* going to both markets instead of doing everything at the duel's winner gains exactly the other market's extra */
   var O=1-G, more=gains[O];
   if(more>0) box.appendChild(el("p","splitsum", sell
-    ? "Splitting the haul earns "+isk(more)+" ISK more than selling everything at "+mk[G].short+"."
-    : "Splitting the haul saves "+isk(more)+" ISK compared with buying everything at "+mk[G].short+"."));
+    ? "Splitting the haul earns "+isk(more)+" ISK more than selling everything "+where(mk[G])+"."
+    : "Splitting the haul saves "+isk(more)+" ISK compared with buying everything "+where(mk[G])+"."));
 }
 function copyButton(items){
   var get = typeof items==="function" ? items : function(){ return items; };
@@ -1116,7 +1118,7 @@ function copyButton(items){
    not listed at A, not listed at B, not listed at either market */
 function renderNotListed(c, mk, mode){
   var box=document.getElementById("notlisted"); box.textContent="";
-  var groups=[[mk[0].short, c.notAt[0]], [mk[1].short, c.notAt[1]], ["either market", c.neither]]
+  var groups=[[where(mk[0]), c.notAt[0]], [where(mk[1]), c.notAt[1]], ["at either market", c.neither]]
     .filter(function(g){ return g[1].length; });
   box.hidden=!groups.length;
   if(!groups.length) return;
@@ -1128,7 +1130,7 @@ function renderNotListed(c, mk, mode){
   groups.forEach(function(g){
     var items=g[1].slice().sort(function(x,y){ return value(y)-value(x); });
     var card=el("div","total");
-    card.appendChild(el("div","where","Not listed at "+g[0]));
+    card.appendChild(el("div","where","Not listed "+g[0]));
     card.appendChild(el("div","count",count(items.length)));
     var ul=el("ul","nlist");
     items.forEach(function(it){ ul.appendChild(el("li",null,it.name+" x"+it.qty)); });
@@ -1195,10 +1197,10 @@ function render(list, mk, failed, total, mode){
     wl.textContent = sell ? "Both markets pay the same total." : "Both markets charge the same total.";
   } else {
     var d=Math.abs(totals[G]-totals[O]);
-    wl.appendChild(document.createTextNode((sell ? "Selling everything at " : "Buying everything at ")+mk[G].short+(sell ? " earns " : " saves ")));
+    wl.appendChild(document.createTextNode((sell ? "Selling everything " : "Buying everything ")+where(mk[G])+(sell ? " earns " : " saves ")));
     var gsp=el("span","gain",isk(d)+" ISK"); gsp.title=full(d); wl.appendChild(gsp);
-    wl.appendChild(document.createTextNode(sell ? " more than selling everything at "+mk[O].short+"."
-                                                : " compared with buying everything at "+mk[O].short+"."));
+    wl.appendChild(document.createTextNode(sell ? " more than selling everything "+where(mk[O])+"."
+                                                : " compared with buying everything "+where(mk[O])+"."));
   }
   var nb=c.onlyAt[0].length+c.onlyAt[1].length+c.neither.length;
   var wn=document.getElementById("wta-note"); wn.hidden=sell || !nb;
@@ -1252,7 +1254,7 @@ function render(list, mk, failed, total, mode){
   function only(s){ return lists[s].filter(function(it){ return it.onlyHere && !it.shortBoth; }); }
   var shortBoth=lists[0].concat(lists[1]).filter(function(it){ return it.shortBoth; });
   var ties=c.compared.filter(function(it){ return it.prices[0]===it.prices[1]; });
-  function winHead(s){ return (sell?"Sells for more at ":"Costs less at ")+mk[s].short; }
+  function winHead(s){ return (sell?"Sells for more ":"Costs less ")+where(mk[s]); }
   [[winHead(G), wins(G)],
    ["Only "+mk[G].short+" has enough", only(G)],
    ["Same price at both markets", ties],
@@ -1278,8 +1280,8 @@ function render(list, mk, failed, total, mode){
     var gs=el("span","goldstar",goldStars(b.diff)); gs.setAttribute("aria-hidden","true"); p.appendChild(gs);
     p.appendChild(document.createTextNode(" "));
     p.appendChild(el("b",null,"Big win:"));
-    p.appendChild(document.createTextNode(" "+b.it.name+" wins by "+isk(b.diff)+" ISK at "+mk[b.at].short
-      +(b.other ? "." : " (no buyer at "+mk[1-b.at].short+").")));
+    p.appendChild(document.createTextNode(" "+b.it.name+" wins by "+isk(b.diff)+" ISK "+where(mk[b.at])
+      +(b.other ? "." : " (no buyer "+where(mk[1-b.at])+").")));
     p.title=full(b.diff);
     bw.appendChild(p);
   });
