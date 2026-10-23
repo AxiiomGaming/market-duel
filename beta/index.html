@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Market Duel — sign-in test</title>
+<style>
+:root{--bg:#f2f5fa;--card:#fff;--ink:#1f2f57;--strong:#1e48a8;--muted:#56657f;--line:#cbd5e6;--accent:#b4532a;--ok:#1f7a4d;--bad:#a3261b}
+@media (prefers-color-scheme: dark){:root{--bg:#0e1420;--card:#172031;--ink:#e2e9f6;--strong:#8db4ff;--muted:#9aa9c4;--line:#2b3852;--accent:#e3804f;--ok:#5fd39a;--bad:#ff8a7a}}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 "Segoe UI",system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:24px 16px 48px;display:grid;gap:18px}
+h1{margin:0;color:var(--strong);font-size:1.6rem}
+h2{margin:0 0 8px;color:var(--strong);font-size:1.15rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
+p{margin:0 0 8px}
+.small{font-size:.9rem;color:var(--muted)}
+button{font:inherit;font-weight:700;padding:8px 18px;border:0;border-radius:8px;background:var(--accent);color:#fff;cursor:pointer;margin:4px 8px 4px 0}
+button.secondary{background:transparent;color:var(--ink);border:1px solid var(--line);font-weight:500}
+button:disabled{opacity:.5;cursor:default}
+input,select{font:inherit;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);width:100%}
+.ok{color:var(--ok);font-weight:600}
+.bad{color:var(--bad);font-weight:600}
+pre{white-space:pre-wrap;font-size:.8rem;background:var(--bg);padding:10px;border-radius:8px;max-height:320px;overflow:auto;margin:8px 0 0}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+td,th{padding:4px 8px;border-bottom:1px solid var(--line);text-align:left}
+td.n{text-align:right}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>Market Duel — sign-in test</h1>
+  <p class="small">Version 2.0 test page. This page only tests EVE's sign-in and citadel markets; it is not Market Duel itself.</p>
+</header>
+
+<section class="card">
+  <h2>1. Sign in</h2>
+  <p id="who">Not signed in.</p>
+  <p class="small">You sign in on CCP's own site (login.eveonline.com), not here. Market Duel never sees your password and can
+    only read market prices and citadel names.</p>
+  <button id="signin" type="button">Sign in with EVE</button>
+  <button id="refresh" type="button" class="secondary">Refresh sign-in</button>
+  <button id="signout" type="button" class="secondary">Sign out</button>
+</section>
+
+<section class="card">
+  <h2>2. Find citadels with a public market</h2>
+  <p class="small">Asks EVE for the list of player-owned stations that have a public market, then looks up their names
+    and systems (each name is one request; names are remembered in this browser).</p>
+  <button id="find" type="button">Find citadels</button>
+  <button id="names" type="button" class="secondary">Look up names</button>
+  <button id="stop" type="button" class="secondary">Stop</button>
+  <p id="findinfo" class="small"></p>
+  <label class="small">Filter by name (for example "Sobaseki")
+    <input id="filter" type="text" placeholder="Type part of a citadel or system name"></label>
+  <p></p>
+  <select id="list" size="8"></select>
+</section>
+
+<section class="card">
+  <h2>3. Read a citadel's market</h2>
+  <p class="small">Pick a citadel above, then read its market. Your character must be able to dock there.</p>
+  <button id="read" type="button">Read market</button>
+  <p id="readinfo"></p>
+  <div id="orders"></div>
+</section>
+
+<section class="card">
+  <h2>Log</h2>
+  <p class="small">If something fails, copy the log and paste it into our chat. It never contains your sign-in key.</p>
+  <button id="copylog" type="button" class="secondary">Copy log</button>
+  <button id="clearlog" type="button" class="secondary">Clear log</button>
+  <pre id="log"></pre>
+</section>
+</main>
+
+<script>
+(function(){
+"use strict";
+var CLIENT_ID="b958bcf58a704d21a13cb606f02e8600";
+var CALLBACK="https://axiiomgaming.github.io/market-duel/callback.html";
+var SCOPES="esi-markets.structure_markets.v1 esi-universe.read_structures.v1";
+var AUTH_URL="https://login.eveonline.com/v2/oauth/authorize/";
+var TOKEN_URL="https://login.eveonline.com/v2/oauth/token";
+var ESI="https://esi.evetech.net/latest";
+function $(id){ return document.getElementById(id); }
+
+/* ---------- log (kept in this browser; never holds tokens) ---------- */
+function getLog(){ try{ return JSON.parse(localStorage.getItem("md-sso-log")||"[]"); }catch(e){ return []; } }
+function log(text){
+  var l=getLog(); l.push(new Date().toISOString().slice(11,19)+" "+text); l=l.slice(-80);
+  try{ localStorage.setItem("md-sso-log",JSON.stringify(l)); }catch(e){}
+  $("log").textContent=l.join("\n"); $("log").scrollTop=1e9;
+}
+$("log").textContent=getLog().join("\n");
+$("copylog").onclick=function(){ var t="Market Duel sign-in test log ("+navigator.userAgent+")\n"+getLog().join("\n");
+  (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(function(){ $("copylog").textContent="Copied ✓"; setTimeout(function(){ $("copylog").textContent="Copy log"; },2000); }); };
+$("clearlog").onclick=function(){ try{ localStorage.removeItem("md-sso-log"); }catch(e){} $("log").textContent=""; };
+
+/* ---------- sign-in (PKCE) ---------- */
+function b64url(bytes){ var s=""; bytes.forEach(function(b){ s+=String.fromCharCode(b); }); return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,""); }
+function getSSO(){ try{ return JSON.parse(localStorage.getItem("md-sso")||"null"); }catch(e){ return null; } }
+function setSSO(v){ try{ v ? localStorage.setItem("md-sso",JSON.stringify(v)) : localStorage.removeItem("md-sso"); }catch(e){} }
+function showWho(){
+  var s=getSSO();
+  if(!s){ $("who").textContent="Not signed in."; $("who").className=""; return; }
+  var mins=Math.round((s.exp-Date.now())/60000);
+  $("who").textContent="Signed in as "+s.name+" (key "+(mins>0?"good for "+mins+" more min":"expired — it renews automatically")+"; permissions: "+s.scopes.join(", ")+")";
+  $("who").className="ok";
+}
+showWho();
+$("signin").onclick=function(){
+  var v=b64url(crypto.getRandomValues(new Uint8Array(32))), state=b64url(crypto.getRandomValues(new Uint8Array(16)));
+  crypto.subtle.digest("SHA-256", new TextEncoder().encode(v)).then(function(h){
+    sessionStorage.setItem("md-sso-pending", JSON.stringify({verifier:v, state:state, ret:location.pathname}));
+    log("sign-in: going to CCP's login page");
+    location.href=AUTH_URL+"?"+new URLSearchParams({response_type:"code", redirect_uri:CALLBACK, client_id:CLIENT_ID,
+      scope:SCOPES, code_challenge:b64url(new Uint8Array(h)), code_challenge_method:"S256", state:state}).toString();
+  });
+};
+function refresh(){
+  var s=getSSO(); if(!s || !s.refresh) return Promise.reject(new Error("not signed in"));
+  return fetch(TOKEN_URL,{method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body:new URLSearchParams({grant_type:"refresh_token", refresh_token:s.refresh, client_id:CLIENT_ID}).toString()})
+    .then(function(r){ return r.text().then(function(t){ if(!r.ok) throw new Error("HTTP "+r.status+" "+t.slice(0,200)); return JSON.parse(t); }); })
+    .then(function(tok){ s.access=tok.access_token; if(tok.refresh_token) s.refresh=tok.refresh_token; s.exp=Date.now()+(tok.expires_in||1199)*1000; setSSO(s); showWho(); log("sign-in: key renewed"); return s; });
+}
+$("refresh").onclick=function(){ refresh().catch(function(e){ log("sign-in: renew FAILED — "+e.message); }); };
+$("signout").onclick=function(){ setSSO(null); showWho(); log("signed out (key removed from this browser)"); };
+function token(){
+  var s=getSSO(); if(!s) return Promise.reject(new Error("Sign in first (step 1)."));
+  return s.exp-Date.now()>60000 ? Promise.resolve(s) : refresh();
+}
+
+/* ---------- ESI with sign-in; watches EVE's error limit ---------- */
+var errLeft=100;
+function esi(path, opts){
+  opts=opts||{};
+  return token().then(function(s){
+    return fetch(ESI+path+(path.indexOf("?")<0?"?":"&")+"datasource=tranquility",{headers:{"Accept":"application/json","Authorization":"Bearer "+s.access}});
+  }).then(function(r){
+    var left=r.headers.get("X-ESI-Error-Limit-Remain"); if(left!=null) errLeft=+left;
+    return r.text().then(function(t){ var j=null; try{ j=JSON.parse(t); }catch(e){}
+      return {status:r.status, ok:r.ok, json:j, text:t, pages:+(r.headers.get("X-Pages")||1)}; });
+  });
+}
+function esiPublic(path){
+  return fetch(ESI+path+(path.indexOf("?")<0?"?":"&")+"datasource=tranquility",{headers:{"Accept":"application/json"}})
+    .then(function(r){ return r.json().then(function(j){ return {status:r.status, ok:r.ok, json:j}; }); });
+}
+
+/* ---------- 2. citadels ---------- */
+var ids=[], stopFlag=false;
+function cache(){ try{ return JSON.parse(localStorage.getItem("md-structs")||"{}"); }catch(e){ return {}; } }
+function saveCache(c){ try{ localStorage.setItem("md-structs",JSON.stringify(c)); }catch(e){} }
+var systemNames={};
+function fillList(){
+  var c=cache(), f=$("filter").value.trim().toLowerCase(), sel=$("list"); sel.textContent="";
+  var rows=Object.keys(c).filter(function(id){ return c[id].n; }).map(function(id){ return {id:id, n:c[id].n}; });
+  rows=rows.filter(function(r){ return !f || r.n.toLowerCase().indexOf(f)>=0; }).sort(function(a,b){ return a.n.localeCompare(b.n); });
+  rows.slice(0,500).forEach(function(r){ var o=document.createElement("option"); o.value=r.id; o.textContent=r.n; sel.appendChild(o); });
+  var named=Object.keys(c).filter(function(id){ return c[id].n; }).length, denied=Object.keys(c).filter(function(id){ return c[id].x; }).length;
+  $("findinfo").textContent=(ids.length?ids.length+" citadels have a public market. ":"")+named+" names known in this browser"+(denied?", "+denied+" not open to your character":"")+(f?"; "+rows.length+" match the filter":"")+".";
+}
+$("filter").oninput=fillList; fillList();
+$("find").onclick=function(){
+  log("citadels: asking EVE for the public list");
+  esiPublic("/universe/structures/?filter=market").then(function(r){
+    if(!r.ok){ log("citadels: list FAILED — HTTP "+r.status); return; }
+    ids=r.json; log("citadels: "+ids.length+" have a public market"); fillList();
+  }).catch(function(e){ log("citadels: list FAILED — "+e.message); });
+};
+$("stop").onclick=function(){ stopFlag=true; };
+$("names").onclick=function(){
+  if(!ids.length){ log("names: press Find citadels first"); return; }
+  var c=cache(), todo=ids.filter(function(id){ return !c[id]; }), done=0, t0=Date.now();
+  stopFlag=false; log("names: "+todo.length+" to look up ("+(ids.length-todo.length)+" already known)");
+  var i=0, active=0;
+  return new Promise(function(resolve){
+    function next(){
+      if(stopFlag || errLeft<20){ if(errLeft<20) log("names: paused to respect EVE's error limit ("+errLeft+" left)"); if(!active) resolve(); return; }
+      while(active<6 && i<todo.length){
+        var id=todo[i++]; active++;
+        (function(id){
+          esi("/universe/structures/"+id+"/").then(function(r){
+            if(r.ok) c[id]={n:r.json.name, s:r.json.solar_system_id, t:r.json.type_id};
+            else c[id]={x:r.status};
+          }).catch(function(e){ log("names: "+id+" failed — "+e.message); }).then(function(){
+            active--; done++;
+            if(done%25===0 || done===todo.length){ saveCache(c); fillList(); $("findinfo").textContent+=" Looking up "+done+" of "+todo.length+"…"; }
+            if(done===todo.length){ log("names: finished in "+Math.round((Date.now()-t0)/1000)+" s"); resolve(); } else next();
+          });
+        })(id);
+      }
+    }
+    next();
+  }).then(function(){ saveCache(c); fillList(); });
+};
+
+/* ---------- 3. read one citadel's market ---------- */
+$("read").onclick=function(){
+  var id=$("list").value; if(!id){ log("market: pick a citadel in step 2 first"); return; }
+  var name=(cache()[id]||{}).n||id, all=[], t0=Date.now();
+  $("readinfo").textContent="Reading "+name+"…"; $("orders").textContent="";
+  log("market: reading "+name);
+  function page(n){
+    return esi("/markets/structures/"+id+"/?page="+n).then(function(r){
+      if(!r.ok){ throw new Error("HTTP "+r.status+(r.status===403?" (your character can't dock there, or the market isn't open to you)":"")+" "+(r.text||"").slice(0,120)); }
+      all=all.concat(r.json); return n<r.pages ? page(n+1) : r.pages;
+    });
+  }
+  page(1).then(function(pages){
+    var sells=all.filter(function(o){ return !o.is_buy_order; }), buys=all.length-sells.length;
+    var msg=name+": "+all.length.toLocaleString()+" orders ("+sells.length.toLocaleString()+" sell, "+buys.toLocaleString()+" buy), "+pages+" page"+(pages>1?"s":"")+", "+Math.round((Date.now()-t0)/100)/10+" s.";
+    $("readinfo").textContent=msg; $("readinfo").className="ok"; log("market: "+msg);
+    var types={}; sells.forEach(function(o){ (types[o.type_id]=types[o.type_id]||[]).push(o); });
+    var top=Object.keys(types).sort(function(a,b){ return types[b].length-types[a].length; }).slice(0,8);
+    return fetch(ESI+"/universe/names/?datasource=tranquility",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(top.map(Number))})
+      .then(function(r){ return r.json(); }).then(function(names){
+        var nm={}; (names||[]).forEach(function(x){ nm[x.id]=x.name; });
+        var tb="<table><tr><th>Item (most sell orders)</th><th class=n>Orders</th><th class=n>Cheapest</th><th class=n>Units at that price</th></tr>";
+        top.forEach(function(t){ var o=types[t].sort(function(a,b){ return a.price-b.price; })[0];
+          tb+="<tr><td>"+(nm[t]||t)+"</td><td class=n>"+types[t].length+"</td><td class=n>"+o.price.toLocaleString()+" ISK</td><td class=n>"+o.volume_remain.toLocaleString()+"</td></tr>"; });
+        $("orders").innerHTML=tb+"</table>";
+      });
+  }).catch(function(e){ $("readinfo").textContent="Could not read "+name+": "+e.message; $("readinfo").className="bad"; log("market: FAILED — "+e.message); });
+};
+})();
+</script>
+</body>
+</html>

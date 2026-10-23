@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Market Duel — signing in</title>
+<style>
+:root{--bg:#f2f5fa;--card:#fff;--ink:#1f2f57;--muted:#56657f;--bad:#a3261b}
+@media (prefers-color-scheme: dark){:root{--bg:#0e1420;--card:#172031;--ink:#e2e9f6;--muted:#9aa9c4;--bad:#ff8a7a}}
+body{margin:0;background:var(--bg);color:var(--ink);font:18px/1.6 "Segoe UI",system-ui,sans-serif}
+main{max-width:720px;margin:40px auto;padding:0 16px}
+.card{background:var(--card);border-radius:12px;padding:20px}
+.bad{color:var(--bad);font-weight:600}
+.small{color:var(--muted);font-size:.9rem}
+a{color:inherit}
+</style>
+</head>
+<body>
+<main><div class="card">
+  <p id="msg">Finishing your EVE sign-in…</p>
+  <p class="small" id="detail"></p>
+  <p id="back" hidden><a href="./beta/">Back to the test page</a></p>
+</div></main>
+<script>
+/* Market Duel sign-in callback (2.0). CCP's login sends the player back here with a one-time code; this page
+   swaps it for a permission key (token) using PKCE, saves the key in this browser only, and returns to the
+   page that started the sign-in. No password ever reaches this page. */
+(function(){
+"use strict";
+var CLIENT_ID="b958bcf58a704d21a13cb606f02e8600";
+var TOKEN_URL="https://login.eveonline.com/v2/oauth/token";
+var msg=document.getElementById("msg"), detail=document.getElementById("detail"), back=document.getElementById("back");
+function fail(text, more){
+  msg.textContent=text; msg.className="bad"; detail.textContent=more||""; back.hidden=false;
+  try{ var log=JSON.parse(localStorage.getItem("md-sso-log")||"[]"); log.push(new Date().toISOString()+" callback: "+text+(more?" — "+more:"")); localStorage.setItem("md-sso-log",JSON.stringify(log.slice(-50))); }catch(e){}
+}
+function payload(jwt){ var p=jwt.split(".")[1].replace(/-/g,"+").replace(/_/g,"/"); while(p.length%4) p+="="; return JSON.parse(decodeURIComponent(escape(atob(p)))); }
+var q=new URLSearchParams(location.search), pending=null;
+try{ pending=JSON.parse(sessionStorage.getItem("md-sso-pending")||"null"); }catch(e){}
+if(pending && pending.ret) back.querySelector("a").href=pending.ret;
+if(q.get("error")){ fail("EVE's login said no: "+q.get("error"), q.get("error_description")||""); return; }
+if(!q.get("code")){ fail("No sign-in code came back.", "Start the sign-in again from the test page."); return; }
+if(!pending || pending.state!==q.get("state")){ fail("This sign-in doesn't match the one this browser started.", "For safety it was not used. Start again from the test page, in the same tab."); return; }
+var body=new URLSearchParams({grant_type:"authorization_code", code:q.get("code"), client_id:CLIENT_ID, code_verifier:pending.verifier});
+fetch(TOKEN_URL,{method:"POST", headers:{"Content-Type":"application/x-www-form-urlencoded"}, body:body.toString()})
+  .then(function(r){ return r.text().then(function(t){ if(!r.ok) throw new Error("HTTP "+r.status+" "+t.slice(0,200)); return JSON.parse(t); }); },
+        function(e){ throw new Error("The browser could not reach CCP's token service, or CCP's server does not allow web pages to ask (CORS). Details: "+e.message); })
+  .then(function(tok){
+    var p=payload(tok.access_token);
+    var sub=String(p.sub||""), id=+sub.split(":").pop();
+    var saved={access:tok.access_token, refresh:tok.refresh_token, exp:Date.now()+(tok.expires_in||1199)*1000,
+               name:p.name||"?", id:id, scopes:[].concat(p.scp||[])};
+    localStorage.setItem("md-sso", JSON.stringify(saved));
+    sessionStorage.removeItem("md-sso-pending");
+    try{ var log=JSON.parse(localStorage.getItem("md-sso-log")||"[]"); log.push(new Date().toISOString()+" callback: signed in as "+saved.name+" (scopes: "+saved.scopes.join(", ")+")"); localStorage.setItem("md-sso-log",JSON.stringify(log.slice(-50))); }catch(e){}
+    msg.textContent="Signed in as "+saved.name+". Returning…";
+    location.replace(pending.ret || "./beta/");
+  })
+  .catch(function(e){ fail("The sign-in could not be finished.", e.message); });
+})();
+</script>
+</body>
+</html>
