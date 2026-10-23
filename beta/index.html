@@ -15,14 +15,14 @@
   /* light theme (Clay, 2026-10-20): dark cornflower navy text, a saturated blue for words that should stand out,
      grey-blue for quiet text. Contrast on the page background: ink 12:1, strong 7.5:1, muted 5.4:1 */
   --bg:#f2f5fa; --card:#ffffff; --ink:#1f2f57; --strong:#1e48a8; --muted:#56657f; --line:#cbd5e6;
-  --soft:#3b4b6b; --ii:#1f6fb2; --win:#1f7a4d; --win-soft:#dcf1e6; --accent:#b4532a; --warn:#8a5a00; --warn-soft:#fbefd6; --gold:#9a6a00; --gold-soft:#fdf3d0; --gold-star:#d99a00;
+  --soft:#3b4b6b; --ii:#1f6fb2; --win:#1f7a4d; --win-soft:#dcf1e6; --accent:#b4532a; --warn:#8a5a00; --warn-soft:#fbefd6; --gold:#9a6a00; --gold-soft:#fdf3d0; --gold-star:#d99a00; --cit:#7a3db8;
   --f:"Lexend","Segoe UI",system-ui,sans-serif;
 }
 @media (prefers-color-scheme: dark){:root{
   /* dark theme (Clay, 2026-10-20): navy-tinted background and cards, light blue-white text, cornflower blue for
      words that should stand out, grey-blue for quiet text. Contrast on the background: ink 15:1, strong 8.9:1, muted 7.8:1 */
   --bg:#0e1420; --card:#172031; --ink:#e2e9f6; --strong:#8db4ff; --muted:#9aa9c4; --line:#2b3852;
-  --soft:#c3cde0; --ii:#7cc8f8; --win:#5fd39a; --win-soft:#173a2a; --accent:#e3804f; --warn:#e7b85a; --warn-soft:#3a2d12; --gold:#f4c95d; --gold-soft:#3b3010; --gold-star:#ffc93c;
+  --soft:#c3cde0; --ii:#7cc8f8; --win:#5fd39a; --win-soft:#173a2a; --accent:#e3804f; --warn:#e7b85a; --warn-soft:#3a2d12; --gold:#f4c95d; --gold-soft:#3b3010; --gold-star:#ffc93c; --cit:#c9a8ff;
 }}
 *{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -66,9 +66,14 @@ td.num,th.num{text-align:right;white-space:nowrap}
 tr:nth-child(even) td{background:color-mix(in srgb,var(--bg) 45%,transparent)}
 td.best{color:var(--win);font-weight:700}
 .starkey{margin:0}
-.limit{display:flex;gap:8px;align-items:baseline}
-.limit-i{flex:none;display:inline-grid;place-items:center;width:1.25em;height:1.25em;border-radius:50%;font-size:.85em;font-weight:700;
-  font-style:italic;border:1.5px solid var(--muted);color:var(--muted);transform:translateY(.15em)}
+.limit{display:flex;gap:10px;align-items:flex-start;margin:0}
+.limit-i{flex:none;width:1.3em;height:1.3em;margin-top:.15em;color:var(--muted)}
+.limit-i svg{display:block;width:100%;height:100%}
+#limit p{margin:0 0 4px}
+#limit p:last-child{margin-bottom:0}
+#limit b{color:var(--ink);font-weight:500}
+#limit ul{margin:0 0 6px;padding-left:20px}
+#limit li{margin:0}
 td .part{font-size:.8em;font-weight:400;color:var(--muted)}
 .greenstar{color:var(--win)}
 tr.grouphead td{background:color-mix(in srgb,var(--win) 13%,var(--card))!important;border-top:1px solid color-mix(in srgb,var(--win) 35%,var(--line));font-weight:700;font-size:.9rem;color:var(--ink);padding-top:12px}
@@ -136,6 +141,10 @@ kbd{font:inherit;font-size:.85em;font-weight:500;padding:1px 7px;border:1px soli
 .citadels .btns{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
 button.eve{font-size:1rem;padding:8px 20px}
 .market .citline{font-size:.85rem;color:var(--muted);min-height:1.2em}
+/* citadels in their own colour, so they stand out from NPC stations (Clay, 2026-10-22). Contrast: light 6.0:1, dark 8.2:1 */
+.cit{color:var(--cit)!important;font-weight:500}
+option.cit{font-weight:500}
+select.cit option:not(.cit){color:var(--ink);font-weight:400}
 </style>
 </head>
 <body>
@@ -208,7 +217,7 @@ button.eve{font-size:1rem;padding:8px 20px}
       <p class="small wtanote" id="wta-note" hidden></p>
     </div>
     <p class="small" id="basis"></p>
-    <p class="small limit"><span class="limit-i" aria-hidden="true">i</span> <span id="limit"></span></p>
+    <div class="small limit"><span class="limit-i" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="7.5" r="1.4" fill="currentColor"/><path d="M12 11v6.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span> <div id="limit"></div></div>
     <div class="tablewrap"><table><thead id="thead"></thead><tbody id="tbody"></tbody></table></div>
     <p class="small starkey" id="starkey"><span class="greenstar">★</span> marks the winning price. More stars mean a bigger difference between the two markets:
       <span class="greenstar">★★</span> 50k ISK or more, <span class="greenstar">★★★</span> 100k or more. Gold stars are Big wins: <span class="goldstar">★</span> 1M or more,
@@ -222,7 +231,8 @@ button.eve{font-size:1rem;padding:8px 20px}
       <b class="pilot">Ax<span class="ii">ii</span>om Jones</b> <button id="copyname" type="button" class="secondary">Copy name</button>
       would be appreciated. Fly safe! o7</p>
     <p>No Market Duel accounts, no cookies, no tracking. Prices come directly from EVE Online's market data via ESI, EVE's official API.
-      Signing in with EVE is optional. It happens on CCP's own site, and the sign-in is saved only in your browser. No website other than CCP's is queried.</p>
+      Signing in with EVE is optional. Sign-in happens securely on CCP's own login site, which grants Market Duel permission to search the
+      citadel markets your character can access. Your sign-in is saved only in your browser. No website other than CCP's is queried.</p>
     <p>© 2014 CCP hf. All rights reserved. "EVE", "EVE Online", "CCP", and all related logos and images are trademarks or registered trademarks of CCP hf.
       Market Duel is a fan-made tool and is not affiliated with or endorsed by CCP.</p>
     <p>Market Duel version 2.0</p>
@@ -345,6 +355,13 @@ function esiAuth(path, qs, retried){
    md-cit-sys  {character: {system: {ids: [...], at: time}}} — which citadels each system has, kept a day */
 var DAY=864e5;
 var SC=load("md-structs",{}), CS=load("md-cit-sys",{});
+/* a sign-in not used for 30 days is forgotten (Clay, 2026-10-22); opening Market Duel counts as use */
+var FORGET_DAYS=30;
+(function(){
+  var s=getSSO(); if(!s) return;
+  if(s.used && Date.now()-s.used > FORGET_DAYS*DAY){ signOut(); return; }
+  s.used=Date.now(); setSSO(s);
+})();
 /* structure types that can't have a market: jump bridges, cyno beacons and jammers (no docking). Engineering complexes
    and refineries are tried too (2.0 beta, 10-22: skipping them hid IChooseYou's market in Sobaseki) */
 var NO_MARKET={35840:1,35841:1,37534:1};
@@ -441,8 +458,9 @@ function makePicker(box, title, storeKey, def){
     /* the system's citadels, when signed in: "IChooseYou Market and Industry (citadel)" */
     var s=signedIn(), y=+system.value, pre=sysName(y)+" - ";
     if(s) savedCitadels(y, s).map(function(id){ var n=citName(id); return [id, (n.indexOf(pre)===0 ? n.slice(pre.length) : n)+" (citadel)"]; })
-      .sort(function(a,b){ return a[1].localeCompare(b[1]); }).forEach(function(c){ opt(station,c[0],c[1]); });
+      .sort(function(a,b){ return a[1].localeCompare(b[1]); }).forEach(function(c){ opt(station,c[0],c[1]).className="cit"; });
     if(keep && [].some.call(station.options,function(o){ return o.value===keep; })) station.value=keep;
+    tint(station);
   }
   /* signed in: look for the chosen system's citadels (saved for a day), then add them to the Station list */
   var lookingFor=0;
@@ -474,12 +492,13 @@ function makePicker(box, title, storeKey, def){
   if(state.system && GEO[region.value].y[state.system]) system.value=state.system;
   fillStations();
   if(state.station){ station.value=state.station; if(!station.value) station.value=""; }
+  tint(station);
   show();
 
   preset.addEventListener("change",function(){ show(); persist(); });
   region.addEventListener("change",function(){ fillSystems(); fillStations(); persist(); findCitadels(); });
   system.addEventListener("change",function(){ fillStations(); persist(); findCitadels(); });
-  station.addEventListener("change",persist);
+  station.addEventListener("change",function(){ tint(station); persist(); });
 
   function current(){
     if(preset.value!=="custom"){ return HUBS.filter(function(h){ return h.key===preset.value; })[0]; }
@@ -497,6 +516,7 @@ function makePicker(box, title, storeKey, def){
     fillStations();
     var st=load(storeKey,{});
     if(preset.value==="custom" && st.station && !station.value && st.system===system.value){ station.value=st.station; if(!station.value) station.value=""; }
+    tint(station);
     findCitadels();
   };
   return current;
@@ -519,7 +539,7 @@ function showSignin(){
     var row=el("div","btns"), out=el("button","secondary","Sign out"); out.type="button";
     out.addEventListener("click",function(){ signOut(); showSignin(); pickers.forEach(function(pk){ pk.refresh(); }); });
     row.appendChild(out);
-    row.appendChild(el("span","small","Your sign-in stays saved in this browser until you sign out."));
+    row.appendChild(el("span","small","Your sign-in stays saved in this browser until you sign out, or for "+FORGET_DAYS+" days without use."));
     citBox.appendChild(row);
     return;
   }
@@ -692,6 +712,8 @@ function stars(diff){ return diff>=1e5 ? "★★★" : diff>=5e4 ? "★★" : "�
 function goldStars(diff){ return diff>=1e7 ? "★★★" : diff>=5e6 ? "★★" : "★"; }
 function full(v){ return Math.round(v).toLocaleString()+" ISK"; }
 function el(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+/* a dropdown shows its chosen citadel in the citadel colour too */
+function tint(sel){ var o=sel.options[sel.selectedIndex]; sel.classList.toggle("cit", !!(o && o.classList.contains("cit"))); }
 
 /* ---------- sound (original effects, synthesized; off by default) ---------- */
 var sfx=(function(){
@@ -817,7 +839,14 @@ function prepareCitadels(mk){
       if(sys.some(function(y){ return !systemSearched(y,s); })) status.textContent="Looking for citadels in "+where+"…";
       step=searchSystems(sys, s, function(d,t){
         status.textContent="Looking for citadels in "+where+": "+d+" of "+t+" systems. This is saved for a day, so next time is faster.";
-      }).then(function(){ var out=[]; sys.forEach(function(y){ out=out.concat(savedCitadels(y,s)); }); return out; });
+      }).then(function(){
+        var out=[];
+        sys.forEach(function(y){
+          out=out.concat(savedCitadels(y,s));
+          ((CS[s.id]||{})[y]||{ids:[]}).ids.forEach(function(id){ var e=SC[id]; if(e && e.n && !NO_MARKET[e.t] && marketClosed(e)) m.cit.closed++; });
+        });
+        return out;
+      });
     }
     return step.then(function(ids){
       if(!ids.length) return;
@@ -838,28 +867,33 @@ function withCitadels(orders, m, type, side){
     if(!!o.is_buy_order===buy && !seen[o.order_id]){ seen[o.order_id]=1; extra.push(o); } }); });
   return extra.length ? orders.concat(extra) : orders;
 }
-/* the "i" note under the totals: which citadels were included */
+/* the "i" note under the totals: which citadels were included, one line per market and the citadel names as a
+   list, easier to read than one paragraph (Clay, 2026-10-22) */
 function showLimit(mk){
   var L=document.getElementById("limit"), s=signedIn();
+  L.textContent="";
+  function line(label, text, cls){ var p=el("p"); if(label){ p.appendChild(el("b",cls||null,label+": ")); } p.appendChild(document.createTextNode(text)); L.appendChild(p); return p; }
   if(!s){
-    L.innerHTML="Player-owned stations (citadels) aren't in EVE's public market data. To include them, sign in with EVE (step 3), "
-      +"or check them in EVE's in-game Regional Market (<kbd>Alt</kbd> + <kbd>R</kbd>).";
+    line("", "Player-owned stations (citadels) aren't in EVE's public market data.");
+    var p=line("", "To include them, sign in with EVE (step 3), or check them in EVE's in-game Regional Market (");
+    p.appendChild(el("kbd",null,"Alt")); p.appendChild(document.createTextNode(" + ")); p.appendChild(el("kbd",null,"R")); p.appendChild(document.createTextNode(")."));
     return;
   }
-  L.textContent="";
-  var parts=[], closed=0, partial=0;
+  var closed=0, partial=0, seen=[];
   mk.forEach(function(m){
+    if(seen.indexOf(m)>=0) return; seen.push(m);
     var c=m.cit||{read:[]}, n=c.read.length; closed+=c.closed||0; partial+=c.partial||0;
-    if(m.station && !isCitadelId(m.station)){ parts.push(m.short+": one NPC station, so no citadels."); return; }
-    if(m.station){ parts.push(m.short+(n ? ": a citadel market." : ": this citadel's market isn't open to "+s.name+".")); closed-=c.closed||0; return; }
-    if(!n){ parts.push(m.short+": no citadel market open to "+s.name+"."); return; }
-    var names=c.read.map(function(r){ return citName(r.id); }).sort();
-    parts.push(m.short+": "+(n===1 ? "includes 1 citadel, " : "includes "+n+" citadels, ")
-      +names.slice(0,3).join("; ")+(n>3 ? "; and "+(n-3)+" more" : "")+".");
+    if(m.station && !isCitadelId(m.station)){ line(m.short, "one NPC station, so no citadels."); return; }
+    if(m.station){ line(m.short, n ? "a citadel market." : "this citadel's market isn't open to "+s.name+".", "cit"); closed-=c.closed||0; return; }
+    if(!n){ line(m.short, "no citadel market open to "+s.name+"."); return; }
+    line(m.short, n===1 ? "1 citadel included:" : n+" citadels included:");
+    var names=c.read.map(function(r){ return citName(r.id); }).sort(), ul=el("ul");
+    names.slice(0,6).forEach(function(nm){ ul.appendChild(el("li","cit",nm)); });
+    if(n>6) ul.appendChild(el("li",null,"and "+(n-6)+" more"));
+    L.appendChild(ul);
   });
-  if(closed) parts.push(closed+" other citadel"+(closed===1?" was":"s were")+" found with no market open to "+s.name+".");
-  if(partial) parts.push("Part of "+partial+" citadel market"+(partial===1?"":"s")+" couldn't be read. Try again in a minute.");
-  L.textContent=parts.join(" ");
+  if(closed) line("", closed+" other citadel"+(closed===1?" has":"s have")+" no market open to "+s.name+".");
+  if(partial) line("", "Part of "+partial+" citadel market"+(partial===1?"":"s")+" couldn't be read. Try again in a minute.");
 }
 function run(){
   var list=normalize();
@@ -987,7 +1021,7 @@ function stationPicker(items, i, mk, mode){
   order.sort(function(a,b){ return (b.gain-a.gain) || (b.items.length-a.items.length); });
   var wrap=el("div","stations");
   if(order.length===1){
-    wrap.appendChild(el("div","small","All at "+placeName(order[0].loc)));
+    var at=el("div","small","All at "); at.appendChild(el("span", isCitadelId(order[0].loc) ? "cit" : null, placeName(order[0].loc))); wrap.appendChild(at);
     wrap.appendChild(copyButton(all));
     return wrap;
   }
@@ -1000,10 +1034,12 @@ function stationPicker(items, i, mk, mode){
     return count(list.length)+" ("+u.toLocaleString()+" units)";
   }
   order.forEach(function(g,k){
-    opt(sel, k, placeName(g.loc)+" — "+holds(g.items)
+    var o=opt(sel, k, placeName(g.loc)+" — "+holds(g.items)
       +(g.gain>0 ? ", "+(sell ? "earns "+isk(g.gain)+" ISK more" : "saves "+isk(g.gain)+" ISK") : ""));
+    if(isCitadelId(g.loc)) o.className="cit";
   });
   opt(sel, "all", "Every station — "+holds(all));
+  tint(sel); sel.addEventListener("change",function(){ tint(sel); });
   lab.appendChild(sel); wrap.appendChild(lab);
   wrap.appendChild(copyButton(function(){ return sel.value==="all" ? all : order[+sel.value].items; }));
   return wrap;
@@ -1170,7 +1206,7 @@ function render(list, mk, failed, total, mode){
 
   th.textContent="";
   var hr=el("tr"); hr.appendChild(el("th",null,"Item")); hr.appendChild(el("th","num","Qty"));
-  mk.forEach(function(m){ hr.appendChild(el("th","num",m.short)); });
+  mk.forEach(function(m){ hr.appendChild(el("th","num"+(m.station && isCitadelId(m.station) ? " cit" : ""),m.short)); });
   th.appendChild(hr);
 
   tb.textContent="";
