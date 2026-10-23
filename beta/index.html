@@ -555,8 +555,11 @@ function showSignin(){
   var row2=el("div","btns"), b=el("button","eve","Sign in with EVE"); b.type="button";
   b.addEventListener("click",signIn); row2.appendChild(b);
   citBox.appendChild(row2);
-  citBox.appendChild(el("p","small","You sign in on CCP's own site (login.eveonline.com), so Market Duel never sees your password. "
-    +"EVE then asks you to allow three things: read citadel markets, read citadel names, and search for citadels by name. Nothing else."));
+  /* Clay, 2026-10-23: say what people can check for themselves (the address bar), not a promise about passwords
+     (some players sign in through Steam, Google or a passkey) */
+  citBox.appendChild(el("p","small","You sign in securely on CCP's own site. Your browser's address bar will show login.eveonline.com. "
+    +"EVE then asks you to grant Market Duel three permissions through ESI, EVE's official API: read citadel markets, read citadel names, "
+    +"and search for citadels by name."));
 }
 showSignin();
 pickers.forEach(function(pk){ pk.refresh(); });
