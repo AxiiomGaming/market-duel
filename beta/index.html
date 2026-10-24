@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="application-name" content="Market Duel">
-<meta name="version" content="2.0">
+<meta name="version" content="2.01">
 <title>Market Duel — a pricing tool for EVE Online</title>
 <style>
 /* Lexend font (SIL Open Font License 1.1) built in, so the page makes no font requests to other sites */
@@ -241,7 +241,7 @@ select.cit option:not(.cit){color:var(--ink);font-weight:400}
       citadel markets your character can access. Your sign-in is saved only in your browser. No website other than CCP's is queried.</p>
     <p>© 2014 CCP hf. All rights reserved. "EVE", "EVE Online", "CCP", and all related logos and images are trademarks or registered trademarks of CCP hf.
       Market Duel is a fan-made tool and is not affiliated with or endorsed by CCP.</p>
-    <p>Market Duel version 2.0</p>
+    <p>Market Duel version 2.01</p>
   </footer>
 </main>
 
@@ -329,17 +329,35 @@ function renew(){
 }
 function accessKey(){ var s=getSSO(); if(!s) return Promise.reject(new Error("signed out")); return s.exp-Date.now()>60000 ? Promise.resolve(s) : renew(); }
 
-/* signed-in ESI requests. EVE blocks a site for a while if it makes too many failed requests (the error limit),
-   so when few are left this waits for EVE's counter to reset */
-var errLeft=100, errReset=60, errWait=null;
+/* ---------- talking to EVE politely (2.01) ----------
+   EVE has two limits. (1) Failed requests: at most 100 a minute from one internet address, then EVE blocks the
+   address for the rest of the minute. Most failures here are citadels whose market is closed or missing, so
+   Market Duel allows itself at most FAIL_BUDGET a minute and spaces out new citadels. (2) A token budget on
+   newer routes: EVE answers 429 with Retry-After, and Market Duel waits that long. Every wait is shown on
+   screen with a countdown, so a pause never looks like a failure (a user's report via Clay, 2026-10-24). */
+var errLeft=100, errReset=60, fails=[], FAIL_BUDGET=50;
+var pause={until:0, why:""};
+function failsLastMinute(){ var t=Date.now()-60000; while(fails.length && fails[0]<t) fails.shift(); return fails.length; }
+function waitFor(secs, why){
+  var until=Date.now()+secs*1000;
+  if(until>pause.until){ pause.until=until; pause.why=why; }
+  return new Promise(function(res){ setTimeout(res, Math.max(0,pause.until-Date.now())); });
+}
 function errGate(){
-  if(errLeft>=25) return Promise.resolve();
-  if(!errWait){
-    var secs=Math.min(65,Math.max(1,errReset+1));
-    if(typeof status!=="undefined" && status) status.textContent="Waiting "+secs+" s for EVE's limit on failed requests to reset…";
-    errWait=new Promise(function(res){ setTimeout(function(){ errLeft=100; errWait=null; res(); }, secs*1000); });
-  }
-  return errWait;
+  if(Date.now()<pause.until) return waitFor(0,"").then(errGate);
+  if(errLeft<40) return waitFor(Math.min(65,Math.max(1,errReset+1)),"fail").then(function(){ errLeft=100; });
+  return Promise.resolve();
+}
+/* before trying a citadel whose market hasn't been read before (it may fail): the first 20 failures in a minute go
+   quickly, then new citadels are tried one every 2 s, so failures stay under 50 a minute (EVE's limit is 100) and
+   progress keeps moving instead of stopping for a long wait (Clay's idea of steady pacing, 2026-10-24) */
+var nextProbe=0;
+function probeGate(){
+  var n=failsLastMinute();
+  if(n>=FAIL_BUDGET) return waitFor(Math.ceil((fails[0]+60000-Date.now())/1000)+1,"fail").then(probeGate);
+  if(n<20) return errGate();
+  var at=Math.max(Date.now(), nextProbe); nextProbe=at+2000;
+  return new Promise(function(res){ setTimeout(res, at-Date.now()); }).then(errGate);
 }
 function esiAuth(path, qs, retried){
   return errGate().then(accessKey).then(function(s){
@@ -347,18 +365,39 @@ function esiAuth(path, qs, retried){
   }).then(function(r){
     var left=r.headers.get("X-ESI-Error-Limit-Remain"), reset=r.headers.get("X-ESI-Error-Limit-Reset");
     if(left!=null) errLeft=+left; if(reset!=null) errReset=+reset;
+    if(!r.ok) fails.push(Date.now());
     if(r.status===420 && !retried){ errLeft=0; return esiAuth(path, qs, true); }
+    if(r.status===429 && !retried){
+      var ra=parseInt(r.headers.get("Retry-After")||"10",10);
+      return waitFor(Math.min(120,Math.max(1,ra)),"busy").then(function(){ return esiAuth(path, qs, true); });
+    }
     if(!r.ok) return {ok:false, status:r.status};
     return r.json().then(function(j){ return {ok:true, status:r.status, json:j, pages:parseInt(r.headers.get("X-Pages")||"1",10)}; });
   });
 }
+/* the status line while a duel runs: what's happening, counts, seconds so far, and any pause with its reason */
+var phase=null, phaseStart=0, ticker=null;
+function setPhase(f){ phase=f; tick(); }
+function tick(){
+  if(!phase) return;
+  var t=(typeof phase==="function" ? phase() : phase)+" ("+Math.round((Date.now()-phaseStart)/1000)+" s)";
+  var left=Math.ceil((pause.until-Date.now())/1000);
+  if(left>0) t+=" Pausing "+left+" s "+(pause.why==="busy" ? "because EVE asked apps to slow down." : "so EVE doesn't block Market Duel for too many failed requests.");
+  status.textContent=t;
+}
+function startTicker(){ phaseStart=Date.now(); if(!ticker) ticker=setInterval(tick,500); }
+function stopTicker(){ if(ticker) clearInterval(ticker); ticker=null; phase=null; }
 
 /* ---------- citadels (player-owned stations) ----------
-   EVE doesn't list citadels by system, but every citadel's name starts with its system's name, so searching
-   for a system's name (as the signed-in character) finds that system's citadels. Saved in this browser:
+   Two sources (2.01). (1) EVE's public list of citadels with a market: one request, but only citadels anyone may
+   dock at. (2) Citadels open to some players only (a corporation, an alliance, standings) aren't listed anywhere
+   for apps, but every citadel's name starts with its system's name, so searching a system's name as the
+   signed-in character finds them. Saved in this browser:
+   md-pub      {ids: [...], at: time} — EVE's public list, kept a day
    md-structs  {id: {n: name, s: system, t: type, at: time}} or {x: error, at} — names, kept 30 days
-               (mx/mat: the market was closed to this character, or there is none; retried after a day)
-   md-cit-sys  {character: {system: {ids: [...], at: time}}} — which citadels each system has, kept a day */
+               (mx/mat: the market was closed to this character, or there is none — retried after 7 days;
+               mok: a time its market was read, so it is safe to read without spacing)
+   md-cit-sys  {character: {system: {ids: [...], at: time}}} — what a system's search found, kept a day */
 var DAY=864e5;
 var SC=load("md-structs",{}), CS=load("md-cit-sys",{});
 /* a sign-in not used for 30 days is forgotten (Clay, 2026-10-22); opening Market Duel counts as use */
@@ -368,25 +407,43 @@ var FORGET_DAYS=30;
   if(s.used && Date.now()-s.used > FORGET_DAYS*DAY){ signOut(); return; }
   s.used=Date.now(); setSSO(s);
 })();
-/* structure types that can't have a market: jump bridges, cyno beacons and jammers (no docking). Engineering complexes
-   and refineries are tried too (2.0 beta, 10-22: skipping them hid IChooseYou's market in Sobaseki) */
-var NO_MARKET={35840:1,35841:1,37534:1};
+/* the only structure types that can fit EVE's Market Hub (Standup Market Hub I, type 35892): Fortizar and its five
+   faction versions, Keepstar, Palatine Keepstar, Azbel, Sotiyo, Tatara. Astrahus, Raitaru, Athanor and the rest can
+   never have a market, so their markets are never tried (2.01; 2.0's first beta wrongly skipped Azbel/Sotiyo/Tatara) */
+var MARKET_TYPES={35833:1,47512:1,47513:1,47514:1,47515:1,47516:1,35834:1,40340:1,35826:1,35827:1,35836:1};
 function isCitadelId(id){ return +id>1e12; }
 function citName(id){ var e=SC[id]; return e && e.n ? e.n : "Citadel "+id; }
-function marketClosed(e){ return e.mx && Date.now()-(e.mat||0)<DAY; }
+function marketClosed(e){ return e.mx && Date.now()-(e.mat||0)<7*DAY; }
 function lookupStructures(ids){
   var todo=ids.filter(function(id){ var e=SC[id]; return !e || Date.now()-(e.at||0) > (e.n ? 30*DAY : DAY); });
   return pool(todo.map(function(id){ return function(){
     return esiAuth("/universe/structures/"+id+"/").then(function(r){
       SC[id] = r.ok ? {n:r.json.name, s:r.json.solar_system_id, t:r.json.type_id, at:Date.now()} : {x:r.status, at:Date.now()};
     });
-  }; }), 4, function(){}).then(function(){ save("md-structs",SC); });
+  }; }), 2, function(){}).then(function(){ save("md-structs",SC); });
 }
-/* the citadels in one system that may have a market, from the saved list */
-function savedCitadels(sysId, s){
-  var mine=(CS[s.id]||{})[sysId];
-  return (mine ? mine.ids : []).filter(function(id){ var e=SC[id]; return e && e.n && !NO_MARKET[e.t] && !marketClosed(e); });
+/* EVE's public list of citadels with a market (one request a day) */
+var PUB=load("md-pub",null), pubLoading=null;
+function publicCitadels(){
+  if(PUB && Date.now()-PUB.at<DAY) return Promise.resolve(PUB.ids);
+  if(!pubLoading) pubLoading=getJSON(esiUrl(esiStyle||"latest","/universe/structures/","filter=market"))
+    .then(function(res){ PUB={ids:res.json||[], at:Date.now()}; save("md-pub",PUB); return PUB.ids; }, function(){ return PUB ? PUB.ids : []; })
+    .then(function(ids){ return lookupStructures(ids).then(function(){ pubLoading=null; return ids; }); });
+  return pubLoading;
 }
+/* the citadels in some systems that can have a market: use = worth reading, closed = known to have none open to you */
+function citadelsIn(sysIds, s){
+  var want={}, ids={};
+  sysIds.forEach(function(y){ want[y]=1; ((CS[s.id]||{})[y]||{ids:[]}).ids.forEach(function(id){ ids[id]=1; }); });
+  (PUB ? PUB.ids : []).forEach(function(id){ var e=SC[id]; if(e && want[e.s]) ids[id]=1; });
+  var out={use:[], closed:0};
+  Object.keys(ids).forEach(function(id){
+    var e=SC[id]; if(!e || !e.n || !MARKET_TYPES[e.t]) return;
+    if(marketClosed(e)) out.closed++; else out.use.push(+id);
+  });
+  return out;
+}
+function savedCitadels(sysId, s){ return citadelsIn([sysId], s).use; }
 function systemSearched(sysId, s){ var e=(CS[s.id]||{})[sysId]; return e && Date.now()-e.at<DAY; }
 function searchSystems(sysIds, s, progress){
   var mine=CS[s.id]||(CS[s.id]={});
@@ -395,33 +452,34 @@ function searchSystems(sysIds, s, progress){
     var name=sysName(y);
     if(name.length<3){ mine[y]={ids:[], at:Date.now()}; return Promise.resolve(); }
     return esiAuth("/characters/"+s.id+"/search/", "categories=structure&strict=false&search="+encodeURIComponent(name)).then(function(r){
-      if(!r.ok) return;
+      if(!r.ok) return;   /* not saved, so it is tried again next time */
       var ids=(r.json && r.json.structure) || [];
       return lookupStructures(ids).then(function(){
         mine[y]={ids:ids.filter(function(id){ return SC[id] && SC[id].s===y; }), at:Date.now()};
       });
     });
-  }; }), 4, progress||function(){}).then(function(){ save("md-cit-sys",CS); return todo.length; });
+  }; }), 2, progress||function(){}).then(function(){ save("md-cit-sys",CS); return todo.length; });
 }
 var SYS_NAME={}, SYS_REGION={};
 Object.keys(GEO).forEach(function(r){ Object.keys(GEO[r].y).forEach(function(y){ SYS_NAME[y]=GEO[r].y[y].n; SYS_REGION[y]=+r; }); });
 function sysName(y){ return SYS_NAME[y] || ""; }
 /* one citadel's whole market (EVE gives a citadel's orders all at once, not per item), kept 5 minutes like EVE's own copy */
-var citMarkets={};
+var citMarkets={}, pagesRead=0;
 function readCitadel(id){
   var c=citMarkets[id]; if(c && Date.now()-c.at<3e5) return c.p;
-  var path="/markets/structures/"+id+"/";
-  var p=esiAuth(path,"page=1").then(function(r){
+  var path="/markets/structures/"+id+"/", known=SC[id] && SC[id].mok;
+  var p=(known ? Promise.resolve() : probeGate()).then(function(){ return esiAuth(path,"page=1"); }).then(function(r){
     var e=SC[id]||(SC[id]={at:Date.now()});
     if(!r.ok){ e.mx=r.status; e.mat=Date.now(); save("md-structs",SC); return {ok:false, id:id, status:r.status}; }
+    pagesRead++;
     var all=r.json||[], missed=0, rest=[];
     for(var n=2;n<=r.pages;n++) (function(n){ rest.push(function(){
-      return esiAuth(path,"page="+n).then(function(r2){ if(r2.ok) all=all.concat(r2.json||[]); else missed++; }, function(){ missed++; });
+      return esiAuth(path,"page="+n).then(function(r2){ if(r2.ok){ all=all.concat(r2.json||[]); pagesRead++; } else missed++; }, function(){ missed++; });
     }); })(n);
     return pool(rest,4,function(){}).then(function(){
       var by={};
       all.forEach(function(o){ o.system_id=e.s; (by[o.type_id]||(by[o.type_id]=[])).push(o); });
-      if(e.mx){ delete e.mx; delete e.mat; save("md-structs",SC); }
+      delete e.mx; delete e.mat; e.mok=Date.now(); save("md-structs",SC);
       return {ok:true, id:id, byType:by, partial:missed>0};
     });
   }).catch(function(){ return {ok:false, id:id, status:0}; });
@@ -483,7 +541,7 @@ function makePicker(box, title, storeKey, def){
     }
     if(systemSearched(y, s)){ report(); return; }
     citline.textContent="Looking for citadels in "+sysName(y)+"…";
-    searchSystems([y], s).then(function(){ if(ticket!==lookingFor) return; fillStations(); report(); },
+    publicCitadels().then(function(){ return searchSystems([y], s); }).then(function(){ if(ticket!==lookingFor) return; fillStations(); report(); },
                                function(){ if(ticket===lookingFor) citline.textContent=""; });
   }
   function show(){ sub.hidden = preset.value!=="custom"; }
@@ -572,6 +630,17 @@ function parseQty(s){
   var d=String(s).replace(/[^\d]/g,"");
   return d ? parseInt(d,10) : 1;
 }
+/* a list copied out of EVE's chat (2.01, a user's report via Clay): lines are joined by "<br>" and the paste starts
+   with "[10:13:30] Liightfall Pryme > ". Turn <br> into new lines, drop the chat time and name, and remove any other
+   chat markup, so the list reads like a fit or a hangar copy */
+function fromChat(text){
+  if(!/<br\s*\/?>|^\s*\[\d{1,2}:\d{2}(:\d{2})?\]/im.test(text) && !/<\/?[a-z][^>]*>|&(amp|lt|gt|quot|#39);/i.test(text)) return text;
+  return text.replace(/<br\s*\/?>/gi,"\n").split(/\r?\n/).map(function(line){
+    return line.replace(/^\s*\[\d{1,2}:\d{2}(:\d{2})?\]\s*[^>\n]*?>\s*/,"")      /* "[10:13:30] Name > " */
+      .replace(/<\/?[a-z][^>]*>/gi,"")                                                /* other chat markup */
+      .replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,"&");
+  }).join("\n");
+}
 function parse(text){
   var items={}, order=[], loadedOnly={};
   function add(name, qty){
@@ -583,6 +652,7 @@ function parse(text){
     if(name in items) return;
     items[name]=1; order.push(name); loadedOnly[name]=true;
   }
+  text=fromChat(text);
   text.split(/\r?\n/).forEach(function(raw){
     var line=raw.trim();
     if(!line) return;
@@ -841,32 +911,27 @@ function prepareCitadels(mk){
   var s=signedIn();
   if(!s) return Promise.resolve();
   function one(m){
-    var step;
+    var step, where = m.station ? m.short : m.system ? sysName(m.system) : GEO[m.region].n;
     if(m.station) step=Promise.resolve(isCitadelId(m.station) ? [m.station] : []);
     else {
       var sys = m.system ? [m.system] : Object.keys(GEO[m.region].y).map(Number);
-      var where = m.system ? sysName(m.system) : GEO[m.region].n;
-      if(sys.some(function(y){ return !systemSearched(y,s); })) status.textContent="Looking for citadels in "+where+"…";
-      step=searchSystems(sys, s, function(d,t){
-        status.textContent="Looking for citadels in "+where+": "+d+" of "+t+" systems. This is saved for a day, so next time is faster.";
-      }).then(function(){
-        var out=[];
-        sys.forEach(function(y){
-          out=out.concat(savedCitadels(y,s));
-          ((CS[s.id]||{})[y]||{ids:[]}).ids.forEach(function(id){ var e=SC[id]; if(e && e.n && !NO_MARKET[e.t] && marketClosed(e)) m.cit.closed++; });
-        });
-        return out;
+      var d0=0, t0=sys.filter(function(y){ return !systemSearched(y,s); }).length;
+      setPhase(function(){ return "Looking for citadels in "+where+": "+d0+" of "+t0+" systems searched. "
+        +"The first search of a region takes a minute or two; it's saved for a day."; });
+      step=publicCitadels().then(function(){ return searchSystems(sys, s, function(d){ d0=d; }); }).then(function(){
+        var c=citadelsIn(sys, s); m.cit.closed+=c.closed; return c.use;
       });
     }
     return step.then(function(ids){
       if(!ids.length) return;
-      status.textContent="Reading "+ids.length+" citadel market"+(ids.length===1?"":"s")+"…";
+      var d1=0, p0=pagesRead;
+      setPhase(function(){ return "Reading citadel markets in "+where+": "+d1+" of "+ids.length+" citadels, "+(pagesRead-p0)+" pages."; });
       return pool(ids.map(function(id){ return function(){ return readCitadel(id).then(function(res){
         if(res.ok){ m.cit.read.push(res); if(res.partial) m.cit.partial++; } else m.cit.closed++;
-      }); }; }), 3, function(d,t){ status.textContent="Reading citadel markets: "+d+" of "+t+"…"; });
+      }); }; }), 3, function(d){ d1=d; });
     });
   }
-  return one(mk[0]).then(function(){ return one(mk[1]); }).catch(function(){});
+  return one(mk[0]).then(function(){ return mk[1]===mk[0] ? null : one(mk[1]); }).catch(function(){});
 }
 /* a market's orders for one item: EVE's public data plus its citadels' orders (an order can be in both) */
 function withCitadels(orders, m, type, side){
@@ -911,7 +976,7 @@ function run(){
   var mk=pickers.map(function(p){ return p(); });
   var mode=currentMode();
   orderCache={};
-  go.disabled=true; status.textContent="Looking up "+list.length+" items…";
+  go.disabled=true; startTicker(); setPhase("Looking up "+list.length+" items…");
   var started=Date.now(); sfx.startChime();
   var unknown=[];
   list.forEach(function(it){ it.id=LOWER[it.name.toLowerCase()]; if(!it.id) unknown.push(it.name); });
@@ -934,15 +999,16 @@ function run(){
         });
       });
     });
-    return pool(tasks, 6, function(d,t){ status.textContent="The markets are dueling… "+d+" of "+t; }).then(function(){
+    var dd=0; setPhase(function(){ return "The markets are dueling… "+dd+" of "+tasks.length; });
+    return pool(tasks, 6, function(d){ dd=d; }).then(function(){
       /* with sound on, let the watch chime at least once before the shot */
       var wait = sfx.on ? Math.max(0, sfx.MIN_MS-(Date.now()-started)) : 0;
       return new Promise(function(res){ setTimeout(res, wait); }).then(function(){
-        sfx.stopChime(); sfx.shot();
+        stopTicker(); sfx.stopChime(); sfx.shot();
         if(render(list, mk, failed, tasks.length, mode)) sfx.bigWin();
       });
     });
-  }).catch(function(){ sfx.stopChime(); status.textContent="Something went wrong. Check your internet connection and try again."; })
+  }).catch(function(){ stopTicker(); sfx.stopChime(); status.textContent="Something went wrong. Check your internet connection and try again."; })
     .then(function(){ go.disabled=false; });
 }
 /* copy text to the clipboard; falls back to a hidden text box where the Clipboard API is blocked */
