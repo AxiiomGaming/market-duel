@@ -1,13 +1,13 @@
 # Market Duel — a pricing tool for EVE Online
 
-Version 2.0
+Version 2.01
 
 Two markets compete for your business. The ★ marks the winner.
 
 **Use it:** https://axiiomgaming.github.io/market-duel/
 
 ## What it does
-Paste a list of items from an EVE hangar or a ship fit, choose **Sell** or **Buy**, and pick two markets
+Paste a list of items from an EVE hangar, a ship fit or EVE chat, choose **Sell** or **Buy**, and pick two markets
 (trade hubs, or any region, system or station in known space). Market Duel shows what each market pays or charges right now
 and marks the winning price for every item and in total.
 
